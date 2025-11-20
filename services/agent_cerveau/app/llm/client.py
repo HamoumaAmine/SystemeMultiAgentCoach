@@ -1,23 +1,21 @@
 import os
 
-from groq import Groq
 from dotenv import load_dotenv
+from langchain_groq import ChatGroq
+from langchain_core.messages import HumanMessage
 
 
 """
-Client LLM pour l'agent cerveau.
+Client LLM pour l'agent cerveau (version LangChain + Groq).
 
-Version V3 : on utilise vraiment l'API Groq pour générer une réponse,
-en gardant la même interface LLMClient.generate(prompt: str) -> str.
-
-La clé API doit être fournie dans la variable d'environnement GROQ_API_KEY,
-par exemple via un fichier .env à la racine du projet.
+On garde la même interface LLMClient.generate(prompt: str) -> str,
+mais à l'intérieur on utilise LangChain pour appeler le modèle Groq.
 """
 
 
 class LLMClient:
     def __init__(self, model: str | None = None) -> None:
-        # Charger les variables d'environnement depuis .env (en dev)
+        # Charger les variables d'environnement depuis .env
         load_dotenv()
 
         api_key = os.getenv("GROQ_API_KEY")
@@ -27,34 +25,30 @@ class LLMClient:
                 "Ajoute-la dans un fichier .env ou configure la variable avant de lancer le service."
             )
 
-        # Initialisation du client Groq
-        self.client = Groq(api_key=api_key)
+        # Modèle par défaut (tu peux en changer si tu veux)
+        self.model_name = model or "llama-3.3-70b-versatile"
 
-        # Modèle utilisé (tu peux changer la valeur par défaut si besoin)
-        self.model = model or "llama-3.3-70b-versatile"
+        # Initialisation du LLM LangChain pour Groq
+        self.llm = ChatGroq(
+            model=self.model_name,
+            api_key=api_key,
+            temperature=0.4,
+            max_tokens=800,
+        )
 
     def generate(self, prompt: str) -> str:
         """
-        Appelle l'API Groq pour générer une réponse à partir du prompt fourni.
+        Génère une réponse textuelle à partir d'un prompt complet.
 
-        Le handler se charge de construire un prompt complet (voir build_coach_prompt),
-        ici on l'envoie simplement au modèle comme message utilisateur.
+        Pour l'instant, on envoie le prompt en un seul bloc comme un message "user".
+        Si tu veux séparer system / user plus tard, tu pourras adapter la logique.
         """
 
-        chat_completion = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                # On pourrait aussi mettre le rôle du coach en "system",
-                # mais pour l'instant tout le contexte est déjà dans le prompt.
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            temperature=0.4,   # un peu de créativité, mais pas trop
-            max_tokens=800,    # limite raisonnable pour la réponse
-        )
+        # On crée un message Human (utilisateur) avec le prompt complet
+        messages = [HumanMessage(content=prompt)]
 
-        # On récupère le texte de la première réponse
-        answer = chat_completion.choices[0].message.content
-        return answer
+        # Appel au modèle via LangChain
+        response = self.llm.invoke(messages)
+
+        # response.content contient le texte produit par le modèle
+        return response.content
