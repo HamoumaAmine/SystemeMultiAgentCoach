@@ -34,15 +34,25 @@ Routes utilitaires pour tester si l’agent fonctionne.
 ##Architecture interne
 agent_interface/
 │
+
 └── app/
+
     ├── main.py               # FastAPI + routes principales
+    
     ├── routers/
+    
     │     └── coach.py        # Endpoint /coach
+    
     ├── models/
+    
     │     └── schemas.py      # UserMessage, CoachResponse
+    
     ├── core/
+    
     │     └── config.py       # Variables d'environnement (URL des agents)
+    
     └── mcp/
+    
           └── client.py       # Fonction send_mcp() pour parler aux autres agents
 
 ##Endpoints disponibles
