@@ -1,0 +1,96 @@
+###########################
+# ENV / SECRETS
+###########################
+.env
+*.env
+!*.env.example
+
+###########################
+# PYTHON
+###########################
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.pkl
+*.db
+*.sqlite3
+*.sqlite
+
+# Virtual env
+venv/
+env/
+ENV/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+###########################
+# LOGS / RUNTIME
+###########################
+logs/
+*.log
+*.out
+*.err
+
+###########################
+# TESTS / COVERAGE
+###########################
+.coverage
+htmlcov/
+.coverage.*
+pytest_cache/
+
+###########################
+# CACHE DÉPENDANCES / BUILD
+###########################
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+###########################
+# NODE (si UI légère ou outils)
+###########################
+node_modules/
+npm-debug.log
+yarn-error.log
+
+###########################
+# DOCKER
+###########################
+*.pid
+docker-compose.override.yml
+docker-data/
+**/Dockerfile.*.tmp
+
+###########################
+# BASE DE DONNÉES
+###########################
+migrations/versions/*.pyc
+migrations/versions/__pycache__/
+
+###########################
+# PROJECT SPECIFIC
+###########################
+# Fichiers générés automatiquement par les agents
+tmp/
+cache/
+agent_memory_db_data/
+
+# Uploads temporaires (vision, audio…)
+uploads/
+audio/
+images/
+
+###########################
+# IDE / SYSTEME
+###########################
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
