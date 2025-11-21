@@ -1,67 +1,202 @@
 from typing import Any, Dict, List, Optional
 
 
-BASE_SYSTEM_PROMPT = """
-Tu es un coach santé/sport/nutrition bienveillant.
-Tu parles à l'utilisateur en français, avec un ton motivant mais réaliste.
-Tu ne donnes pas de diagnostic médical, tu restes prudent si la santé est en jeu.
-Tu proposes des conseils simples, organisés et applicables dans la vraie vie.
-"""
+def _format_mood(mood: Optional[str]) -> str:
+    """
+    Retourne une phrase expliquant l'humeur de l'utilisateur,
+    et des consignes pour adapter le ton.
+    """
+    if not mood:
+        return (
+            "Humeur actuelle détectée : non précisée.\n"
+            "Adapte ton ton de manière neutre mais bienveillante."
+        )
+
+    mood = mood.strip().lower()
+
+    if mood in {"fatigué", "fatigue", "épuisé", "epuise"}:
+        return (
+            "Humeur actuelle détectée : fatigué.\n"
+            "- Sois compréhensif et rassurant.\n"
+            "- Propose des actions simples et réalistes.\n"
+            "- Insiste sur la récupération, le sommeil et la gestion de la charge.\n"
+        )
+    if mood in {"stressé", "stresse", "anxieux"}:
+        return (
+            "Humeur actuelle détectée : stressé.\n"
+            "- Aide à réduire la pression.\n"
+            "- Propose des stratégies de gestion du stress (respiration, pauses, marche).\n"
+            "- Évite de fixer des objectifs trop agressifs.\n"
+        )
+    if mood in {"motivé", "motivé(e)", "tres motive"}:
+        return (
+            "Humeur actuelle détectée : motivé.\n"
+            "- Profite de cette motivation pour proposer un plan un peu plus ambitieux mais réaliste.\n"
+            "- Donne des objectifs mesurables et progressifs.\n"
+        )
+
+    # Par défaut : mood reconnu mais pas de règle spécifique
+    return (
+        f"Humeur actuelle détectée : {mood}.\n"
+        "Adapte ton ton de manière adaptée à cette humeur, en restant bienveillant."
+    )
+
+
+def _format_history(history: Any) -> str:
+    """
+    Transforme l'historique brut en texte lisible pour le LLM.
+
+    On s'attend à recevoir une liste de dictionnaires avec au moins :
+      - role: 'user' ou 'coach'
+      - text: str
+      - metadata: dict optionnel (peut contenir 'mood')
+    """
+
+    if not history:
+        return "Historique récent : aucun échange enregistré avec cet utilisateur.\n"
+
+    # Si on reçoit autre chose qu'une liste de dicts (par ex. liste de strings),
+    # on gère de manière robuste.
+    if isinstance(history, list) and all(isinstance(item, str) for item in history):
+        joined = "\n".join(f"- {item}" for item in history)
+        return (
+            "Historique récent (format simple) :\n"
+            f"{joined}\n"
+        )
+
+    # Sinon, on suppose une liste de dicts renvoyés par agent_memory
+    lines: List[str] = []
+    lines.append(
+        "Historique récent avec cet utilisateur (du plus ancien au plus récent) :"
+    )
+
+    # L'historique qu'on reçoit est normalement du plus récent au plus ancien,
+    # donc on inverse pour reconstituer la chronologie.
+    try:
+        items = list(reversed(history))
+    except TypeError:
+        items = history
+
+    for idx, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            continue
+
+        role = item.get("role", "unknown")
+        text = item.get("text", "").strip()
+        metadata = item.get("metadata") or {}
+
+        if role.lower() == "user":
+            role_label = "Utilisateur"
+        elif role.lower() == "coach":
+            role_label = "Coach"
+        else:
+            role_label = role
+
+        mood = metadata.get("mood")
+        if mood:
+            mood_info = f"(mood: {mood})"
+        else:
+            mood_info = ""
+
+        lines.append(f"{idx}. [{role_label}] {mood_info}".strip())
+        if text:
+            lines.append(f"   {text}")
+
+    lines.append("")  # ligne vide finale
+    return "\n".join(lines)
+
+
+def _format_expert_knowledge(expert_knowledge: Any) -> str:
+    """
+    Formate les connaissances expertes (documents) si disponibles.
+
+    On s'attend idéalement à une liste de chaînes, ou de dicts avec 'title'/'content'.
+    """
+
+    if not expert_knowledge:
+        return (
+            "Aucun extrait de document expert n'est fourni pour cette requête.\n"
+            "Appuie-toi sur tes connaissances générales en sport et nutrition."
+        )
+
+    lines: List[str] = []
+    lines.append("Extraits de documents experts disponibles :")
+
+    if isinstance(expert_knowledge, list):
+        for idx, item in enumerate(expert_knowledge, start=1):
+            if isinstance(item, str):
+                lines.append(f"- [Doc {idx}] {item}")
+            elif isinstance(item, dict):
+                title = item.get("title", f"Doc {idx}")
+                content = item.get("content", "")
+                lines.append(f"- [{title}] {content}")
+    else:
+        # Format inconnu : on cast en str
+        lines.append(str(expert_knowledge))
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 def build_coach_prompt(
     user_input: str,
     mood: Optional[str] = None,
-    history: Optional[List[Dict[str, Any]]] = None,
-    expert_knowledge: Optional[List[str]] = None,
+    history: Any = None,
+    expert_knowledge: Any = None,
 ) -> str:
     """
-    Construit le prompt complet envoyé au modèle de langage.
+    Construit le prompt complet envoyé au LLM.
 
-    - user_input : dernier message de l'utilisateur
-    - mood : humeur actuelle (fatigué, motivé, stressé, etc.)
-    - history : éventuellement quelques interactions passées
-    - expert_knowledge : extraits de textes de référence (nutrition/sport)
+    On combine :
+      - rôle du modèle (coach sportif & nutrition)
+      - humeur actuelle
+      - historique conversationnel
+      - éventuels extraits de documents experts
+      - demande actuelle de l'utilisateur
     """
 
-    history = history or []
-    expert_knowledge = expert_knowledge or []
+    mood_block = _format_mood(mood)
+    history_block = _format_history(history)
+    expert_block = _format_expert_knowledge(expert_knowledge)
 
-    parts: List[str] = []
+    system_instructions = """
+Tu es un coach sportif et nutritionnel personnel.
+Ton objectif est d'aider l'utilisateur à améliorer sa santé, son bien-être
+et ses performances, en respectant :
 
-    # 1) Rôle du coach
-    parts.append(BASE_SYSTEM_PROMPT.strip())
+- Son niveau actuel (débutant, intermédiaire, avancé).
+- Son contexte de vie (travail, fatigue, disponibilité).
+- Sa sécurité (ne propose jamais quelque chose de dangereux).
+- Une approche progressive et réaliste.
 
-    # 2) Contexte : mood
-    if mood:
-        parts.append(f"Humeur actuelle de l'utilisateur : {mood}.")
+IMPORTANT :
+- Réponds toujours en français.
+- Utilise un ton motivant mais bienveillant, jamais culpabilisant.
+- Propose des actions concrètes, simples à appliquer.
+- Lorsque c'est pertinent, découpe les conseils en étapes (1., 2., 3., ...).
+- Si l'utilisateur donne très peu d'informations, pose 2–3 questions de clarification à la fin.
+"""
 
-    # 3) Contexte : petit résumé d'historique (très simple pour l'instant)
-    if history:
-        parts.append("Historique récent de l'utilisateur :")
-        for item in history[-3:]:
-            # On prend maximum 3 entrées pour éviter que ce soit trop long.
-            text = item.get("text") or item.get("message") or str(item)
-            parts.append(f"- {text}")
+    prompt = f"""
+{system_instructions.strip()}
 
-    # 4) Connaissances expertes (éventuellement fournies par agent_knowledge)
-    if expert_knowledge:
-        parts.append("Extraits de connaissances expertes à prendre en compte :")
-        for i, chunk in enumerate(expert_knowledge[:3], start=1):
-            parts.append(f"[Doc {i}] {chunk}")
+=== Contexte émotionnel (mood) ===
+{mood_block.strip()}
 
-    # 5) Dernier message de l'utilisateur
-    parts.append("Message actuel de l'utilisateur :")
-    parts.append(user_input.strip())
+=== Historique des échanges ===
+{history_block.strip()}
 
-    # 6) Instruction finale au modèle
-    parts.append(
-        "En te basant sur ces éléments, propose une réponse de coach claire, "
-        "structurée en 2 ou 3 parties (par exemple : état des lieux, plan sportif, conseils nutrition), "
-        "adaptée au niveau de motivation/humeur mentionné. "
-        "Reste prudent sur les aspects médicaux."
-    )
+=== Connaissances expertes ===
+{expert_block.strip()}
 
-    # On assemble tout avec des doubles sauts de ligne pour plus de lisibilité
-    full_prompt = "\n\n".join(parts)
-    return full_prompt
+=== Demande actuelle de l'utilisateur ===
+{user_input.strip()}
+
+=== Instructions de réponse ===
+- Commence par reformuler très brièvement la situation de l'utilisateur.
+- Adapte ton ton à l'humeur décrite.
+- Fournis ensuite un plan d'action clair (par exemple : section Sport, section Nutrition, section Récupération).
+- Termine par un petit message motivant et, si besoin, 1 à 3 questions pour mieux personnaliser l'accompagnement.
+"""
+
+    return prompt.strip()
