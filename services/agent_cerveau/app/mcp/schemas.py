@@ -1,13 +1,14 @@
-from pydantic import BaseModel
 from typing import Any, Dict, Optional
+from pydantic import BaseModel
 
 
 class MCPMessage(BaseModel):
     """
-    Schéma standard d'un message MCP échangé entre agents.
+    Modèle générique de message MCP.
+    Utilisé si un jour on veut valider l'entrée côté agent_cerveau.
     """
     message_id: str
-    type: str               # "request" | "response" | "event"
+    type: str
     from_agent: str
     to_agent: str
     payload: Dict[str, Any]
@@ -16,7 +17,9 @@ class MCPMessage(BaseModel):
 
 class MCPResponse(BaseModel):
     """
-    Réponse MCP produite par l'agent cerveau.
+    Réponse MCP renvoyée par agent_cerveau.
+    Ce format doit être identique à celui d'agent_memory
+    pour que tous les agents puissent communiquer sans erreur.
     """
     message_id: str
     type: str = "response"
