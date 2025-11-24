@@ -11,29 +11,28 @@ from app.repositories.interactions import create_interaction, get_user_history
 def get_db() -> Session:
     """
     Fournit une session DB.
-    Ici on ne passe pas par FastAPI Depends, donc on gère
-    l'ouverture/fermeture manuellement dans process_mcp_message.
+    On gère l'ouverture/fermeture manuellement dans process_mcp_message.
     """
     return SessionLocal()
 
 
 async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     """
-    Point d'entrée principal de l'agent mémoire.
+    Agent mémoire.
 
-    Gère deux tâches principales :
-      - task == "save_interaction"
-      - task == "get_history"
+    Tâches gérées :
+      - "save_interaction" : sauvegarder une interaction générique
+      - "get_history"      : récupérer l'historique d'un user
+      - "save_mood"        : sauvegarder un état physique/mental (mood tracker)
     """
 
     payload: Dict[str, Any] = msg.get("payload", {}) or {}
     task: Optional[str] = payload.get("task")
 
-    # On ouvre une session DB
     db = get_db()
 
     try:
-        # --- 1) Sauvegarder une interaction ---
+        # --- 1) Sauvegarder une interaction générique ---
         if task == "save_interaction":
             user_id = payload.get("user_id")
             role = payload.get("role") or "user"
@@ -43,6 +42,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             if not user_id or not text:
                 response_payload = {
                     "status": "error",
+                    "task": "save_interaction",
                     "message": "user_id et text sont obligatoires pour save_interaction.",
                 }
             else:
@@ -67,6 +67,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             if not user_id:
                 response_payload = {
                     "status": "error",
+                    "task": "get_history",
                     "message": "user_id est obligatoire pour get_history.",
                 }
             else:
@@ -88,7 +89,46 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
                     "history": history,
                 }
 
-        # --- 3) Tâche inconnue ---
+        # --- 3) Sauvegarder un mood (agent Mood Tracker) ---
+        elif task == "save_mood":
+            user_id = payload.get("user_id")
+            physical_state = payload.get("physical_state")
+            mental_state = payload.get("mental_state")
+
+            if not user_id:
+                response_payload = {
+                    "status": "error",
+                    "task": "save_mood",
+                    "message": "user_id est obligatoire pour save_mood.",
+                }
+            else:
+                # On stocke le mood dans metadata, comme l'a décrit le prof
+                metadata = {
+                    "service": "mood_tracker",
+                    "physical_state": physical_state,
+                    "mental_state": mental_state,
+                }
+
+                # Texte optionnel pour debug / lecture humaine
+                text = (
+                    f"Mood du jour - physique: {physical_state}, mental: {mental_state}"
+                )
+
+                interaction = create_interaction(
+                    db=db,
+                    user_id=user_id,
+                    role="mood",
+                    text=text,
+                    metadata=metadata,
+                )
+
+                response_payload = {
+                    "status": "ok",
+                    "task": "save_mood",
+                    "interaction_id": interaction.id,
+                }
+
+        # --- 4) Tâche inconnue ---
         else:
             response_payload = {
                 "status": "error",
@@ -96,7 +136,6 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             }
 
     finally:
-        # On ferme proprement la session DB
         db.close()
 
     return MCPResponse(

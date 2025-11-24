@@ -47,9 +47,13 @@ def _format_history(history: Any) -> str:
     Transforme l'historique brut en texte lisible pour le LLM.
 
     On s'attend à recevoir une liste de dictionnaires avec au moins :
-      - role: 'user' ou 'coach'
+      - role: 'user' ou 'coach' ou 'mood'
       - text: str
-      - metadata: dict optionnel (peut contenir 'mood')
+      - metadata: dict optionnel, pouvant contenir par exemple :
+          - service: "coaching_sport", "mood_tracker", ...
+          - mood: str
+          - physical_state: str
+          - mental_state: str
     """
 
     if not history:
@@ -83,18 +87,42 @@ def _format_history(history: Any) -> str:
 
         role = item.get("role", "unknown")
         text = item.get("text", "").strip()
-        metadata = item.get("metadata") or {}
+        metadata: Dict[str, Any] = item.get("metadata") or {}
 
-        if role.lower() == "user":
+        # Label du rôle
+        role_lower = str(role).lower()
+        if role_lower == "user":
             role_label = "Utilisateur"
-        elif role.lower() == "coach":
+        elif role_lower == "coach":
             role_label = "Coach"
+        elif role_lower == "mood":
+            role_label = "MoodTracker"
         else:
             role_label = role
 
-        mood = metadata.get("mood")
-        if mood:
-            mood_info = f"(mood: {mood})"
+        # Récupération des infos de contexte dans metadata
+        service = metadata.get("service")
+        mood_label = metadata.get("mood")
+        physical = metadata.get("physical_state")
+        mental = metadata.get("mental_state")
+
+        details: List[str] = []
+
+        if service:
+            details.append(f"service: {service}")
+        if mood_label:
+            details.append(f"mood: {mood_label}")
+        # états physique / mental issus du mood tracker
+        pm_parts: List[str] = []
+        if physical:
+            pm_parts.append(f"physique={physical}")
+        if mental:
+            pm_parts.append(f"mental={mental}")
+        if pm_parts:
+            details.append(" / ".join(pm_parts))
+
+        if details:
+            mood_info = "(" + ", ".join(details) + ")"
         else:
             mood_info = ""
 
@@ -149,8 +177,8 @@ def build_coach_prompt(
 
     On combine :
       - rôle du modèle (coach sportif & nutrition)
-      - humeur actuelle
-      - historique conversationnel
+      - humeur actuelle (ou état physique/mental agrégé)
+      - historique conversationnel (avec service, mood tracker, etc.)
       - éventuels extraits de documents experts
       - demande actuelle de l'utilisateur
     """
@@ -194,7 +222,7 @@ IMPORTANT :
 
 === Instructions de réponse ===
 - Commence par reformuler très brièvement la situation de l'utilisateur.
-- Adapte ton ton à l'humeur décrite.
+- Adapte ton ton à l'humeur décrite (et à l'état physique/mental si disponible).
 - Fournis ensuite un plan d'action clair (par exemple : section Sport, section Nutrition, section Récupération).
 - Termine par un petit message motivant et, si besoin, 1 à 3 questions pour mieux personnaliser l'accompagnement.
 """

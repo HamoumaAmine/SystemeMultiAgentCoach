@@ -11,51 +11,76 @@ from app.clients.memory_client import MemoryClient
 memory_client = MemoryClient()
 
 
+def _mood_from_payload(payload: Dict[str, Any]) -> Optional[str]:
+    """
+    Construit une description textuelle du mood à partir de :
+      - payload["mood"] (texte simple) si présent
+      - sinon payload["mood_state"] = {physical_state, mental_state}
+    """
+    mood = payload.get("mood")
+    if mood:
+        return str(mood)
+
+    mood_state = payload.get("mood_state") or {}
+    if isinstance(mood_state, dict):
+        physical = mood_state.get("physical_state")
+        mental = mood_state.get("mental_state")
+        if physical or mental:
+            parts = []
+            if physical:
+                parts.append(f"état physique: {physical}")
+            if mental:
+                parts.append(f"état mental: {mental}")
+            return ", ".join(parts)
+
+    return None
+
+
 async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     """
     Point d'entrée principal de l'agent cerveau.
 
-    Pour l'instant, on gère principalement la tâche :
-      - task == "coach_response"
+    Dans l'architecture actuelle, l'agent cerveau est appelé par
+    l'orchestrateur avec la tâche "coach_response".
 
-    Le flux est le suivant :
-      1. Récupérer user_input, mood, etc. depuis le payload
-      2. Si user_id présent dans le contexte :
-            - demander l'historique à agent_memory (get_history)
-      3. Construire le prompt complet avec build_coach_prompt
-      4. Appeler le LLM (Groq via LangChain) pour obtenir la réponse
-      5. Si user_id présent :
-            - enregistrer la question + la réponse dans agent_memory (save_interaction)
-      6. Retourner la réponse dans un MCPResponse
+    Flux :
+      1. Récupérer user_input, mood / mood_state, éventuelles connaissances expertes.
+      2. Récupérer l'historique utilisateur via agent_memory.
+      3. Construire le prompt (build_coach_prompt).
+      4. Appeler le LLM (Groq via LangChain).
+      5. Sauvegarder question + réponse dans agent_memory.
+      6. Retourner la réponse au caller (orchestrateur ou agent_interface).
     """
 
     payload: Dict[str, Any] = msg.get("payload", {}) or {}
     context: Dict[str, Any] = msg.get("context", {}) or {}
     task: Optional[str] = payload.get("task")
 
-    # On essaie de récupérer un user_id pour personnaliser l'historique
     user_id: Optional[str] = context.get("user_id")
 
-    # --- 1) Tâche principale : coach_response ---
     if task == "coach_response":
         user_input: str = payload.get("user_input", "")
-        mood: Optional[str] = payload.get("mood")
-        # Cet historique peut venir de l'interface, mais on va essayer
-        # de le remplacer/compléter avec celui d'agent_memory.
-        history_from_payload = payload.get("history") or []
-        expert_knowledge = payload.get("expert_knowledge") or []
+        # mood peut être simple ("fatigué") ou structuré (mood_state)
+        mood = _mood_from_payload(payload)
 
-        # --- 2) Récupérer l'historique chez agent_memory (si user_id dispo) ---
+        # history transmis par l'orchestrateur (optionnel)
+        history_from_payload = payload.get("history") or []
+
+        # connaissances expertes éventuelles (Agent_Knowledge)
+        expert_knowledge = payload.get("expert_knowledge") or payload.get(
+            "knowledge_results", []
+        )
+
+        # --- 1) Récupérer l'historique chez agent_memory ---
         history: Any = history_from_payload
         if user_id:
             try:
                 history = memory_client.get_history(user_id=user_id, limit=10)
-            except Exception as e:
-                # En cas d'erreur on loguerait normalement, mais pour le MVP
-                # on se contente d'ignorer et de garder l'history du payload.
+            except Exception:
+                # En cas de problème de mémoire, on retombe sur l'historique fourni
                 history = history_from_payload
 
-        # --- 3) Construire le prompt complet pour le LLM ---
+        # --- 2) Construire le prompt complet ---
         full_prompt = build_coach_prompt(
             user_input=user_input,
             mood=mood,
@@ -63,11 +88,11 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             expert_knowledge=expert_knowledge,
         )
 
-        # --- 4) Appel au LLM (Groq via LangChain) ---
+        # --- 3) Appel au LLM (Groq via LangChain) ---
         llm = LLMClient()
         answer = llm.generate(full_prompt)
 
-        # --- 5) Enregistrer la question + la réponse dans agent_memory ---
+        # --- 4) Sauvegarder la question + la réponse dans la mémoire ---
         if user_id:
             try:
                 # Interaction utilisateur
@@ -75,29 +100,29 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
                     user_id=user_id,
                     role="user",
                     text=user_input,
-                    metadata={"mood": mood},
+                    metadata={
+                        "service": "coaching_sport",
+                        "mood_raw": mood,
+                    },
                 )
-
-                # Interaction coach (réponse de l'agent cerveau)
+                # Interaction coach (réponse)
                 memory_client.save_interaction(
                     user_id=user_id,
                     role="coach",
                     text=answer,
-                    metadata={},
+                    metadata={"service": "coaching_sport"},
                 )
             except Exception:
-                # En cas d'erreur d'écriture en mémoire, on n'empêche pas la réponse
+                # On n'empêche pas la réponse au cas où la mémoire est HS
                 pass
 
         response_payload = {
             "status": "ok",
             "task": "coach_response",
             "answer": answer,
-            # On renvoie l'historique utilisé pour debug / transparence
             "used_history": history,
         }
 
-    # --- 6) Tâche inconnue ou non gérée ---
     else:
         response_payload = {
             "status": "error",
