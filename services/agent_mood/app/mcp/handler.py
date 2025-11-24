@@ -1,23 +1,28 @@
-from typing import Dict, Any
+from typing import Any, Dict
 
-from app.mood.classifier import analyze_mood
-from .schemas import MCPMessage, MCPResponse
+from ..mood.classifier import analyze_mood
+from .schemas import MCPRequest, MCPResponse
 
 
-def handle_mcp(message: MCPMessage) -> MCPResponse:
+def handle_mcp(message: MCPRequest) -> MCPResponse:
     """
-    Agent_Mood : analyse l'état émotionnel de l'utilisateur.
+    Point d'entrée de l'agent_mood pour le protocole MCP.
 
-    Attend dans payload :
-      - task: "analyze_mood"
-      - text: str (obligatoire)
-      - user_id: str (optionnel)
+    Tâche supportée :
+    - payload.task == "analyze_mood"
+
+    Payload attendu :
+    {
+      "task": "analyze_mood",
+      "text": "...",
+      "user_id": "user-123"   # optionnel
+    }
     """
-
     payload: Dict[str, Any] = message.payload or {}
     task = payload.get("task")
 
     if task != "analyze_mood":
+        # On renvoie une réponse d'erreur propre, pas une exception
         return MCPResponse(
             message_id=message.message_id,
             from_agent="agent_mood",
@@ -29,8 +34,8 @@ def handle_mcp(message: MCPMessage) -> MCPResponse:
             context=message.context or {},
         )
 
-    text = payload.get("text", "") or ""
-    user_id = payload.get("user_id")
+    text = payload.get("text", "")
+    user_id = payload.get("user_id")  # non utilisé pour l'instant mais gardé
 
     result = analyze_mood(text)
 
@@ -46,8 +51,8 @@ def handle_mcp(message: MCPMessage) -> MCPResponse:
             "score": result.score,
             "valence": result.valence,
             "energy": result.energy,
+            "matched_keywords": result.matched_keywords,
             "debug": {
-                "matched_keywords": result.matched_keywords,
                 "explanation": result.raw_explanation,
             },
         },

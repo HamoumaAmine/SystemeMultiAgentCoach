@@ -3,41 +3,48 @@ from typing import Any, Dict
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from pathlib import Path
-from dotenv import load_dotenv
-
-from .mcp.schemas import MCPMessage  # <-- nouveau
-from .mcp.handler import handle_mcp  # <-- ne contient plus MCPMessage
-
-
-# === Charger le fichier .env placé dans le même répertoire que main.py ===
-BASE_DIR = Path(__file__).resolve().parent  # -> services/agent_mood/app
-env_path = BASE_DIR / ".env"
-load_dotenv(dotenv_path=env_path)
-
-
-class HealthResponse(BaseModel):
-    status: str
+from .mcp.handler import handle_mcp
+from .mcp.schemas import MCPRequest, MCPResponse
 
 
 app = FastAPI(
-    title="Agent Mood - Mood Tracker",
+    title="Agent Mood",
+    description="Micro-service de suivi d'humeur (mood tracker) pour le coach multi-agents.",
     version="0.1.0",
 )
 
 
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+
+
 @app.get("/health", response_model=HealthResponse)
-def health_check():
+def healthcheck() -> HealthResponse:
     """
-    Permet de vérifier que le service est up.
+    Simple endpoint pour vérifier que le service tourne.
     """
-    return HealthResponse(status="ok")
+    return HealthResponse(status="ok", service="agent_mood")
 
 
-@app.post("/mcp")
-def mcp_endpoint(message: MCPMessage) -> Dict[str, Any]:
+@app.post("/mcp", response_model=MCPResponse)
+def mcp_endpoint(message: MCPRequest) -> MCPResponse:
     """
-    Endpoint MCP : reçoit un message, renvoie un message.
+    Endpoint MCP de l'agent_mood.
+
+    Tu peux le tester avec Thunder Client avec un JSON de ce type :
+
+    {
+      "message_id": "mood-test-1",
+      "type": "request",
+      "from_agent": "tester",
+      "to_agent": "agent_mood",
+      "payload": {
+        "task": "analyze_mood",
+        "text": "Franchement je suis épuisé, j'en peux plus.",
+        "user_id": "user-demo"
+      },
+      "context": {}
+    }
     """
-    response = handle_mcp(message)
-    return response
+    return handle_mcp(message)
