@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 import httpx
 
-# URLs des services (à synchroniser avec docker-compose si besoin)
-AGENT_MANAGER_URL = "http://127.0.0.1:8004/mcp"
-AGENT_MOOD_URL = "http://127.0.0.1:8001/mcp"
-AGENT_CERVEAU_URL = "http://127.0.0.1:8002/mcp"
+# -------------------------------------------------------------------------
+# URLs des services : en local on utilise 127.0.0.1, en Docker on override
+# avec des variables d'environnement.
+# -------------------------------------------------------------------------
+
+AGENT_MANAGER_URL = os.getenv("AGENT_MANAGER_URL", "http://127.0.0.1:8004/mcp")
+AGENT_MOOD_URL = os.getenv("AGENT_MOOD_URL", "http://127.0.0.1:8001/mcp")
+AGENT_CERVEAU_URL = os.getenv("AGENT_CERVEAU_URL", "http://127.0.0.1:8002/mcp")
 
 
 async def call_agent(url: str, message: Dict[str, Any]) -> Dict[str, Any]:
@@ -227,10 +232,8 @@ class ServiceRegistry:
             "expert_knowledge": [],
         }
 
-        # Si un mood_state est connu, on le injecte dans le payload
         if mood_state:
             payload["mood_state"] = mood_state
-            # on ajoute aussi un champ "mood" plus simple si dispo
             mood_label = mood_state.get("mood_label")
             if mood_label:
                 payload["mood"] = mood_label

@@ -1,0 +1,96 @@
+
+services:
+  agent_memory:
+    build:
+      context: ./services/agent_memory
+      dockerfile: Dockerfile
+    container_name: agent_memory
+    ports:
+      - "8003:8003"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./services/agent_memory/app/agent_memory.db:/app/agent_memory.db
+    networks:
+      - smartcoach_net
+
+  agent_mood:
+    build:
+      context: ./services/agent_mood
+      dockerfile: Dockerfile
+    container_name: agent_mood
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Si ton agent_mood utilise GROQ :
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    networks:
+      - smartcoach_net
+
+  agent_cerveau:
+    build:
+      context: ./services/agent_cerveau
+      dockerfile: Dockerfile
+    container_name: agent_cerveau
+    ports:
+      - "8002:8002"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      # Pour que MemoryClient parle à agent_memory dans le réseau Docker
+      - AGENT_MEMORY_URL=http://agent_memory:8003
+    depends_on:
+      - agent_memory
+    networks:
+      - smartcoach_net
+
+  agent_manager:
+    build:
+      context: ./services/agent_manager
+      dockerfile: Dockerfile
+    container_name: agent_manager
+    ports:
+      - "8004:8004"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    networks:
+      - smartcoach_net
+
+  orchestrator:
+    build:
+      context: ./services/orchestrator
+    #  si ton Dockerfile n'est pas à la racine de ce dossier, adapte dockerfile:
+    #  dockerfile: Dockerfile
+    container_name: orchestrator
+    ports:
+      - "8005:8005"
+    environment:
+      - PYTHONUNBUFFERED=1
+      # URLs des autres agents dans le réseau Docker
+      - AGENT_MANAGER_URL=http://agent_manager:8004/mcp
+      - AGENT_MOOD_URL=http://agent_mood:8001/mcp
+      - AGENT_CERVEAU_URL=http://agent_cerveau:8002/mcp
+    depends_on:
+      - agent_manager
+      - agent_mood
+      - agent_cerveau
+    networks:
+      - smartcoach_net
+
+  # Tu pourras ajouter plus tard :
+  # agent_speech:
+  #   build:
+  #     context: ./services/agent_speech
+  #   container_name: agent_speech
+  #   ports:
+  #     - "8006:8006"
+  #   environment:
+  #     - PYTHONUNBUFFERED=1
+  #   networks:
+  #     - smartcoach_net
+
+networks:
+  smartcoach_net:
+    driver: bridge
