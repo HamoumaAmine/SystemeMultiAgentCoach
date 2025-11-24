@@ -104,42 +104,51 @@ def analyze_mood(text: str) -> MoodResult:
     client = get_groq_client()
 
     system_prompt = (
-        "Tu es un analyseur d'humeur (mood tracker) pour un coach sport/nutrition.\n"
-        "Ton rôle est d'analyser le message d'un utilisateur francophone et de "
-        "détecter :\n"
-        "- son humeur principale (mood),\n"
-        "- le NIVEAU D'INTENSITÉ de cette humeur (score entre 0 et 1),\n"
-        "- la valence (positive / neutre / négative),\n"
-        "- le niveau d'énergie (low / medium / high),\n"
-        "- et quelques mots / expressions du texte qui t'ont servi d'indice.\n\n"
-        'IMPORTANT : le champ "score" NE représente PAS une confiance technique, '
-        "mais le degré d'intensité de l'émotion pour le mood choisi.\n\n"
-        "Tu dois OBLIGATOIREMENT répondre en JSON STRICT, SANS aucun texte autour,\n"
-        "avec exactement la structure suivante :\n\n"
-        "{\n"
-        '  \"mood\": \"fatigue | demotivation | stress | tristesse | positif | neutre\",\n'
-        "  \"score\": 0.0 à 1.0,\n"
-        '  \"valence\": \"positive\" | \"neutral\" | \"negative\",\n'
-        '  \"energy\": \"low\" | \"medium\" | \"high\",\n'
-        "  \"matched_keywords\": {\n"
-        '    \"categorie_principale\": [\"mot1\", \"mot2\"]\n'
-        "  },\n"
-        '  \"explanation\": \"courte explication en français\"\n'
-        "}\n\n"
-        "Interprétation de \"score\" (intensité émotionnelle) :\n"
-        "- proche de 0.0 : aucune émotion claire exprimée pour ce mood,\n"
-        "- ~0.2-0.4 : émotion faible (ex: fatigue légère, léger stress, "
-        "légère positivité),\n"
-        "- ~0.5-0.7 : émotion modérée,\n"
-        "- ~0.8-1.0 : émotion très forte et clairement exprimée.\n"
-        "Exemples :\n"
-        '- \"je suis un peu fatigué\" -> mood=\"fatigue\", score ≈ 0.3\n'
-        '- \"je suis épuisé, j\'en peux plus\" -> mood=\"fatigue\", score ≈ 0.8-0.9\n'
-        '- \"ça va, je suis plutôt en forme et motivé\" -> mood=\"positif\", '
-        "score ≈ 0.7-0.8\n"
-        '- message purement factuel, sans émotion -> mood=\"neutre\", score ≈ 0.5.\n'
-        "Ne JAMAIS ajouter de texte avant ou après le JSON.\n"
-    )
+    "Tu es un analyseur d'humeur (mood tracker) pour un coach sport/nutrition.\n"
+    "Ton rôle est d'analyser un message d'utilisateur francophone et de retourner :\n"
+    "- son humeur principale (mood),\n"
+    "- un score d'intensité entre 0 et 1,\n"
+    "- la valence (positive / neutral / negative),\n"
+    "- le niveau d'énergie (low / medium / high),\n"
+    "- les mots-clés qui justifient ton analyse.\n\n"
+
+    "⚠️ IMPORTANT :\n"
+    "- Le champ \"score\" NE représente PAS une confiance.\n"
+    "- Le score doit représenter UNIQUEMENT **l'intensité émotionnelle**.\n"
+    "- Si l'émotion est négative (fatigue, stress, tristesse, démotivation), "
+    "le score doit être **proche de 0**.\n"
+    "- Si l'émotion est positive (motivation, optimisme, énergie), "
+    "le score doit être **proche de 1**.\n"
+    "- Une émotion neutre doit produire un score autour de 0.5.\n\n"
+
+    "Échelle exacte à utiliser :\n"
+    "- 0.0 -0.2 : émotion fortement négative (fatigue extrême, épuisement, tristesse).\n"
+    "- 0.2 - 0.4 : émotion négative faible à modérée.\n"
+    "- 0.4 - 0.6 : état neutre ou ambigu.\n"
+    "- 0.6 - 0.8 : émotion positive faible à modérée.\n"
+    "- 0.8 - 1.0 : émotion fortement positive (forte motivation, euphorie, énergie).\n\n"
+
+    "Format de sortie :\n"
+    "{\n"
+    '  \"mood\": \"fatigue | demotivation | stress | tristesse | positif | neutre\",\n'
+    '  \"score\": 0.0 à 1.0,  # intensité selon l’échelle ci-dessus\n'
+    '  \"valence\": \"positive\" | \"neutral\" | \"negative\",\n'
+    '  \"energy\": \"low\" | \"medium\" | \"high\",\n'
+    "  \"matched_keywords\": {\n"
+    '    \"categorie_principale\": [\"mot1\", \"mot2\"]\n'
+    "  },\n"
+    '  \"explanation\": \"courte explication en français montrant comment tu as évalué l’intensité\"\n'
+    "}\n\n"
+
+    "Exemples :\n"
+    "- \"je suis complètement épuisé\" → mood=fatigue, score ≈ 0.1, valence=negative.\n"
+    "- \"je suis un peu stressé mais ça va\" → mood=stress, score ≈ 0.3.\n"
+    "- \"ça va, journée normale\" → mood=neutre, score ≈ 0.5.\n"
+    "- \"je suis super motivé, j’ai trop d’énergie\" → mood=positif, score ≈ 0.9.\n\n"
+
+    "Réponds STRICTEMENT en JSON sans aucune phrase autour."
+)
+
 
     user_prompt = (
         "Message utilisateur (en français) :\n"
