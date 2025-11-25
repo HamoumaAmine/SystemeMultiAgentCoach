@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>SMARTCOACH - Onboarding</title>
+
+  <style>
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0px); }
+    }
+    .fade-up { animation: fadeUp .6s ease forwards; }
+
+    .glass {
+      background: rgba(255,255,255,0.8);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.7);
+    }
+
+    .chip {
+      border: 1px solid #e2e8f0;
+      background: white;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: .2s;
+    }
+    .chip.active {
+      background: black;
+      color: white;
+      border-color: black;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 12px rgba(0,0,0,.15);
+    }
+  </style>
+</head>
+
+<body class="min-h-screen bg-gradient-to-br from-[#0b3a66] via-[#0f5b7d] to-[#10b981] p-4">
+
+  <div class="max-w-2xl mx-auto glass rounded-3xl shadow-2xl p-7 space-y-6 fade-up">
+
+    <!-- Header -->
+    <div class="flex items-center gap-3">
+      <img src="/static/logo.png" class="w-12 h-12 rounded-xl bg-white p-1 shadow-lg" alt="logo">
+      <div>
+        <h1 class="text-xl font-extrabold tracking-tight">SMARTCOACH</h1>
+        <p class="text-xs text-slate-600">Complète ton profil pour un coaching précis</p>
+      </div>
+    </div>
+
+    <h2 class="text-lg font-bold">Profil utilisateur</h2>
+
+    <form id="profileForm" class="space-y-4">
+
+      <!-- infos de base -->
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <input name="age" type="number" min="10" max="100" placeholder="Âge"
+               class="w-full border rounded-xl p-3 bg-white/95">
+        <input name="height_cm" type="number" placeholder="Taille (cm)"
+               class="w-full border rounded-xl p-3 bg-white/95">
+        <input name="weight_kg" type="number" placeholder="Poids (kg)"
+               class="w-full border rounded-xl p-3 bg-white/95">
+      </div>
+
+      <!-- objectif -->
+      <div>
+        <label class="text-sm font-semibold">Objectif</label>
+        <div class="flex flex-wrap gap-2 mt-2" id="goalChips">
+          <div class="chip" data-value="lose">Perte de poids</div>
+          <div class="chip" data-value="gain">Prise de masse</div>
+          <div class="chip" data-value="fit">Remise en forme</div>
+          <div class="chip" data-value="perf">Performance</div>
+        </div>
+        <input type="hidden" name="goal" id="goalInput">
+      </div>
+
+      <!-- niveau activité -->
+      <div>
+        <label class="text-sm font-semibold">Niveau d'activité</label>
+        <div class="flex flex-wrap gap-2 mt-2" id="activityChips">
+          <div class="chip" data-value="low">Débutant</div>
+          <div class="chip" data-value="medium">Intermédiaire</div>
+          <div class="chip" data-value="high">Avancé</div>
+        </div>
+        <input type="hidden" name="activity_level" id="activityInput">
+      </div>
+
+      <!-- fréquence séances -->
+      <div class="grid grid-cols-2 gap-3">
+        <input name="sessions_per_week" type="number" min="1" max="7"
+               placeholder="Séances / semaine"
+               class="w-full border rounded-xl p-3 bg-white/95">
+        <input name="time_per_session_min" type="number" min="10" max="180"
+               placeholder="Temps / séance (min)"
+               class="w-full border rounded-xl p-3 bg-white/95">
+      </div>
+
+      <!-- restrictions -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <input name="diet" placeholder="Régime alimentaire (halal, vegan...)"
+               class="w-full border rounded-xl p-3 bg-white/95">
+        <input name="injuries" placeholder="Blessures / douleurs (genou...)"
+               class="w-full border rounded-xl p-3 bg-white/95">
+      </div>
+
+      <button class="w-full bg-black text-white rounded-xl py-3 hover:bg-slate-900 transition shadow-lg">
+        Enregistrer & continuer
+      </button>
+
+      <p id="err" class="text-sm text-red-600 hidden"></p>
+    </form>
+  </div>
+
+<script>
+/* chips selector */
+function setupChips(containerId, hiddenInputId){
+  const chips = document.querySelectorAll(`#${containerId} .chip`);
+  const hidden = document.getElementById(hiddenInputId);
+
+  chips.forEach(c => {
+    c.addEventListener("click", () => {
+      chips.forEach(x => x.classList.remove("active"));
+      c.classList.add("active");
+      hidden.value = c.dataset.value;
+    });
+  });
+}
+
+setupChips("goalChips", "goalInput");
+setupChips("activityChips", "activityInput");
+
+/* submit */
+document.getElementById("profileForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const token = localStorage.getItem("token");
+  const err = document.getElementById("err");
+  err.classList.add("hidden");
+
+  if(!token){
+    window.location.href="/ui/login";
+    return;
+  }
+
+  const data = Object.fromEntries(new FormData(e.target).entries());
+
+  const res = await fetch("/profile/", {
+    method: "POST",
+    headers: {
+      "Content-Type":"application/json",
+      "Authorization": "Bearer " + token
+    },
+    body: JSON.stringify(data)
+  });
+
+  if(!res.ok){
+    err.innerText = "Erreur d’enregistrement. Réessaie.";
+    err.classList.remove("hidden");
+    return;
+  }
+
+  window.location.href = "/ui/home";
+});
+</script>
+
+</body>
+</html>
