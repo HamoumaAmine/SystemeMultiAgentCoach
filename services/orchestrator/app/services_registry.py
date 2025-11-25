@@ -42,9 +42,9 @@ class ServiceCommand:
     Représente une commande telle que renvoyée par l'agent_manager :
       - service : ex. "mood", "coaching", "speech", "nutrition", "vision"
       - command : ex. "analyze_mood", "coach_response", "transcribe_audio",
-                  "analyze_meal", "analyze_meal_image"
+                  "analyze_meal", "analyze_image"
       - text    : texte sur lequel ce service doit travailler
-                 (pour speech : chemin audio, pour vision : chemin image)
+                 (pour speech : chemin audio ; pour vision : chemin image)
     """
 
     service: str
@@ -55,10 +55,11 @@ class ServiceCommand:
 # Type d'un handler pour un service.
 ServiceHandler = Callable[
     [
-        ServiceCommand,  # commande
-        Optional[str],  # user_id
-        Optional[Dict[str, Any]],  # mood_state
-        Optional[Dict[str, Any]],  # nutrition_result
+        ServiceCommand,              # commande
+        Optional[str],               # user_id
+        Optional[Dict[str, Any]],    # mood_state
+        Optional[Dict[str, Any]],    # nutrition_result
+        Optional[Dict[str, Any]],    # vision_result
     ],
     Awaitable[Any],
 ]
@@ -73,7 +74,7 @@ class ServiceRegistry:
       - appel de l'agent_cerveau
       - appel de l'agent_speech
       - appel de l'agent_knowledge (nutrition)
-      - appel de l'agent_vision
+      - appel de l'agent_vision (analyse d'image)
       - plus tard : agent_memory, etc.
     """
 
@@ -114,12 +115,19 @@ class ServiceRegistry:
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
         nutrition_result: Optional[Dict[str, Any]],
+        vision_result: Optional[Dict[str, Any]],
     ) -> Any:
         """
         Exécute le handler associé à la commande donnée.
         """
         handler = self.get_handler(command.service, command.command)
-        return await handler(command, user_id, mood_state, nutrition_result)
+        return await handler(
+            command,
+            user_id,
+            mood_state,
+            nutrition_result,
+            vision_result,
+        )
 
     # --------------------------------------------------------------------- #
     # Handlers par défaut
@@ -131,14 +139,16 @@ class ServiceRegistry:
           - coaching/coach_response
           - speech/transcribe_audio
           - nutrition/analyze_meal  (via agent_knowledge)
-          - knowledge/nutrition_suggestions (via agent_knowledge)
-          - vision/analyze_meal_image (via agent_vision)
+          - knowledge/nutrition_suggestions (alias)
+          - vision/analyze_image
         """
         self.register("mood", "analyze_mood", self._handle_mood_analyze)
         self.register("coaching", "coach_response", self._handle_coach_response)
         self.register("speech", "transcribe_audio", self._handle_speech_transcribe)
 
-        # Agent knowledge / nutrition
+        # On peut adresser l'agent_knowledge de deux manières :
+        #  - service="nutrition", command="analyze_meal"
+        #  - service="knowledge", command="nutrition_suggestions"
         self.register(
             "nutrition",
             "analyze_meal",
@@ -150,11 +160,11 @@ class ServiceRegistry:
             self._handle_knowledge_nutrition,
         )
 
-        # Agent vision
+        # Agent vision (analyse d'image / repas en photo)
         self.register(
             "vision",
-            "analyze_meal_image",
-            self._handle_vision_analyze_meal_image,
+            "analyze_image",
+            self._handle_vision_analyze,
         )
 
     # ------------------------ Utils de mapping mood ----------------------- #
@@ -196,9 +206,20 @@ class ServiceRegistry:
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
         nutrition_result: Optional[Dict[str, Any]],
+        vision_result: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """
-        Appelle l'agent_mood et renvoie un dict mood_state normalisé.
+        Appelle l'agent_mood et renvoie un dict mood_state normalisé :
+
+        {
+          "mood_label": "...",
+          "score": 0.7,
+          "valence": "negative",
+          "energy": "low",
+          "physical_state": "low",
+          "mental_state": "low",
+          "matched_keywords": {...}
+        }
         """
 
         msg: Dict[str, Any] = {
@@ -249,6 +270,7 @@ class ServiceRegistry:
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
         nutrition_result: Optional[Dict[str, Any]] = None,
+        vision_result: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         """
         Appelle l'agent_cerveau pour générer la réponse de coaching.
@@ -257,7 +279,7 @@ class ServiceRegistry:
           - user_input = command.text
           - mood_state = dict éventuellement issu de l'agent_mood
           - mood = mood_state["mood_label"] si dispo
-          - expert_knowledge = [nutrition_result] si dispo
+          - expert_knowledge = combinaison de nutrition_result + vision_result
         """
 
         payload: Dict[str, Any] = {
@@ -273,11 +295,26 @@ class ServiceRegistry:
             if mood_label:
                 payload["mood"] = mood_label
 
-        # 🔥 AJOUT : transmettre la nutrition comme connaissance experte
+        # 🔥 Construire les connaissances expertes à partir de nutrition + vision
+        expert_knowledge: list[Dict[str, Any]] = []
+
         if nutrition_result:
-            payload["expert_knowledge"] = [nutrition_result]
-        else:
-            payload["expert_knowledge"] = []
+            expert_knowledge.append(
+                {
+                    "type": "nutrition",
+                    "data": nutrition_result,
+                }
+            )
+
+        if vision_result:
+            expert_knowledge.append(
+                {
+                    "type": "vision",
+                    "data": vision_result,
+                }
+            )
+
+        payload["expert_knowledge"] = expert_knowledge
 
         # MCP message final
         msg: Dict[str, Any] = {
@@ -304,9 +341,24 @@ class ServiceRegistry:
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
         nutrition_result: Optional[Dict[str, Any]],
+        vision_result: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """
         Appelle l'agent_speech pour transcrire un fichier audio.
+
+        On s'attend à ce que command.text contienne le chemin du fichier audio.
+
+        L'agent_speech renvoie normalement un payload du type :
+          {
+            "status": "ok",
+            "task": "transcribe_audio",
+            "agent": "speech_to_text",
+            "input_file": "...",
+            "output_file": "...",
+            "output_text": "..."
+          }
+
+        On renvoie ce dict brut à l'orchestrateur, ou None en cas d'erreur.
         """
 
         audio_path = command.text
@@ -338,6 +390,7 @@ class ServiceRegistry:
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
         nutrition_result: Optional[Dict[str, Any]],
+        vision_result: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """
         Appelle l'agent_knowledge pour obtenir des suggestions nutritionnelles.
@@ -381,30 +434,28 @@ class ServiceRegistry:
             print("[ORCH] ERREUR appel agent_knowledge :", repr(e), flush=True)
             return None
 
-    async def _handle_vision_analyze_meal_image(
+    async def _handle_vision_analyze(
         self,
         command: ServiceCommand,
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
         nutrition_result: Optional[Dict[str, Any]],
+        vision_result: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """
-        Appelle l'agent_vision pour analyser une image de plat/repas.
+        Appelle l'agent_vision pour analyser une image (photo de repas).
 
-        On s'attend à ce que command.text contienne le chemin de l'image.
-
-        L'agent_vision renvoie normalement un payload du type :
-          {
-            "status": "ok",
-            "task": "analyze_meal_image",
-            "image_path": "...",
-            "result": { ... }
-          }
-
-        On renvoie result (dict) à l'orchestrateur, ou None en cas d'erreur.
+        On renvoie de préférence le champ "result" (analyse structurée),
+        ou à défaut le payload complet.
         """
 
         image_path = command.text
+
+        print(
+            "[ORCH] appel agent_vision avec image_path :",
+            image_path,
+            flush=True,
+        )
 
         msg: Dict[str, Any] = {
             "message_id": str(uuid.uuid4()),
@@ -412,8 +463,10 @@ class ServiceRegistry:
             "from_agent": "orchestrator",
             "to_agent": "agent_vision",
             "payload": {
-                "task": "analyze_meal_image",
+                "task": "analyze_image",
                 "image_path": image_path,
+                # On peut passer un goal générique, le prompt interne gère le reste
+                "user_goal": "Analyse du repas pour le coaching sport/nutrition",
             },
             "context": {"user_id": user_id} if user_id else {},
         }
@@ -422,9 +475,18 @@ class ServiceRegistry:
             resp = await call_agent(AGENT_VISION_URL, msg)
             payload = resp.get("payload", {}) or {}
 
+            print("[ORCH] réponse brute agent_vision :", payload, flush=True)
+
             if payload.get("status") != "ok":
                 return None
-            return payload.get("result")
+
+            # La plupart du temps, l'agent_vision renvoie un champ "result"
+            result = payload.get("result")
+            if result is not None:
+                return result
+
+            # Sinon on renvoie le payload entier
+            return payload
         except Exception as e:
             print("[ORCH] ERREUR appel agent_vision :", repr(e), flush=True)
             return None

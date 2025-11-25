@@ -19,7 +19,6 @@ async def _route_with_manager(
     user_input: str,
     user_id: Optional[str],
     audio_path: Optional[str],
-    image_path: Optional[str],
 ) -> List[Dict[str, Any]]:
     """
     Appelle l'agent_manager pour obtenir la liste des services à exécuter.
@@ -34,9 +33,6 @@ async def _route_with_manager(
 
     Si audio_path est fourni, il est transmis à l'agent_manager pour qu'il
     ajoute éventuellement un service "speech"/"transcribe_audio".
-
-    Si image_path est fourni, il est transmis à l'agent_manager pour qu'il
-    ajoute éventuellement un service "vision"/"analyze_meal_image".
     """
 
     payload: Dict[str, Any] = {
@@ -45,8 +41,6 @@ async def _route_with_manager(
     }
     if audio_path:
         payload["audio_path"] = audio_path
-    if image_path:
-        payload["image_path"] = image_path
 
     msg: Dict[str, Any] = {
         "message_id": str(uuid.uuid4()),
@@ -67,9 +61,6 @@ async def _route_with_manager(
     if not isinstance(services, list):
         return []
 
-    # Debug optionnel
-    print("[ORCH] services reçus depuis agent_manager :", services, flush=True)
-
     return services
 
 
@@ -79,13 +70,14 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
 
     Tâche gérée :
       - "process_user_input" : reçoit un texte utilisateur (et éventuellement
-        un chemin audio), orchestre les appels aux autres agents.
+        un chemin audio et/ou un chemin image), orchestre les appels aux autres
+        agents.
 
     Entrée attendue dans payload :
       - task: "process_user_input"
       - user_input: str (facultatif, texte brut fourni par l'interface)
       - audio_path: str (facultatif, chemin/identifiant du fichier audio)
-      - image_path: str (facultatif, chemin/identifiant de l'image du repas)
+      - image_path: str (facultatif, chemin/identifiant de l'image à analyser)
 
     La réponse contient :
       - status: "ok" ou "error"
@@ -131,12 +123,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     # -------------------------------------------------------------------------
     # 1) Appeler l'agent_manager pour savoir quels services exécuter
     # -------------------------------------------------------------------------
-    services = await _route_with_manager(
-        user_input=user_input,
-        user_id=user_id,
-        audio_path=audio_path,
-        image_path=image_path,
-    )
+    services = await _route_with_manager(user_input, user_id, audio_path)
 
     # Convertir vers des objets ServiceCommand
     service_commands: List[ServiceCommand] = []
@@ -153,6 +140,19 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
                 service=service_name,
                 command=command,
                 text=text_for_service,
+            )
+        )
+
+    # -------------------------------------------------------------------------
+    # 1.b) Ajouter une commande vision si une image est fournie
+    # -------------------------------------------------------------------------
+    if image_path:
+        # On crée une commande explicite pour agent_vision
+        service_commands.append(
+            ServiceCommand(
+                service="vision",
+                command="analyze_image",
+                text=image_path,  # utilisé comme chemin d'image par le registry
             )
         )
 
@@ -174,10 +174,10 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     # ------------------------- 2.1 Première passe ----------------------------
     # On exécute :
     #  - speech/transcribe_audio
-    #  - vision/analyze_meal_image
     #  - mood/analyze_mood
     #  - nutrition/analyze_meal
     #  - knowledge/nutrition_suggestions
+    #  - vision/analyze_image
     # On NE lance PAS encore coaching/coach_response ici.
     # -------------------------------------------------------------------------
     for cmd in service_commands:
@@ -188,6 +188,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
                 user_id=user_id,
                 mood_state=mood_state,
                 nutrition_result=nutrition_result,
+                vision_result=vision_result,
             )
             if isinstance(result, dict):
                 transcription_result = result
@@ -196,13 +197,17 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
                     transcribed_text = text_from_speech
             continue
 
-        # Cas spécial : vision (analyse d'image)
-        if cmd.service == "vision" and cmd.command == "analyze_meal_image":
+        # Cas spécial : vision
+        if cmd.service == "vision" and cmd.command in (
+            "analyze_image",
+            "analyze_diet_image",
+        ):
             result = await service_registry.execute(
                 cmd,
                 user_id=user_id,
                 mood_state=mood_state,
                 nutrition_result=nutrition_result,
+                vision_result=vision_result,
             )
             if isinstance(result, dict):
                 vision_result = result
@@ -223,6 +228,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             user_id=user_id,
             mood_state=mood_state,
             nutrition_result=nutrition_result,
+            vision_result=vision_result,
         )
 
         # Interprétation du résultat selon le type de service
@@ -249,7 +255,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     # Maintenant qu'on a :
     #   - mood_state
     #   - nutrition_result
-    #   - vision_result (si dispo)
+    #   - vision_result
     #   - éventuellement transcribed_text
     # On peut appeler coaching/coach_response proprement.
     # -------------------------------------------------------------------------
@@ -262,6 +268,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             user_id=user_id,
             mood_state=mood_state,
             nutrition_result=nutrition_result,
+            vision_result=vision_result,
         )
 
         if isinstance(result, str):
