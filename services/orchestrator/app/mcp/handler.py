@@ -81,12 +81,13 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
       - mood_state: dict ou None
       - coach_answer: str ou None
       - speech_transcription: dict ou None
+      - nutrition_result: dict ou None
       - called_services: liste des services exécutés
 
     Comportement particulier :
       - si un service "speech"/"transcribe_audio" est exécuté et renvoie un
         "output_text", ce texte est utilisé comme entrée pour les services
-        suivants (mood, coaching, etc.).
+        suivants (mood, coaching, knowledge, etc.).
     """
 
     payload: Dict[str, Any] = msg.get("payload", {}) or {}
@@ -145,6 +146,9 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     transcription_result: Optional[Dict[str, Any]] = None
     transcribed_text: Optional[str] = None
 
+    # Pour récupérer le résultat de l'agent_knowledge
+    nutrition_result: Optional[Dict[str, Any]] = None
+
     for cmd in service_commands:
         # -------------------------------------------------------------
         # 2.a) Cas spécial : service SPEECH (transcription audio)
@@ -187,9 +191,13 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             if isinstance(result, str):
                 coach_answer = result
 
+        if cmd.service == "knowledge" and cmd.command == "nutrition_suggestions":
+            if isinstance(result, dict):
+                nutrition_result = result
+
         # Plus tard :
-        # - service "nutrition"
         # - service "vision"
+        # - service "memory"
         # - etc.
 
     # -------------------------------------------------------------------------
@@ -202,6 +210,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
         "mood_state": mood_state,
         "coach_answer": coach_answer,
         "speech_transcription": transcription_result,
+        "nutrition_result": nutrition_result,
         "called_services": services,
     }
 

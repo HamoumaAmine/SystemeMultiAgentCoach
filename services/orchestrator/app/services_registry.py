@@ -12,12 +12,15 @@ import httpx
 # -------------------------------------------------------------------------
 # URLs des services : en local on utilise 127.0.0.1, en Docker on override
 # avec des variables d'environnement.
+#
+# Ici on garde la convention que l'URL inclut déjà /mcp.
 # -------------------------------------------------------------------------
 
 AGENT_MANAGER_URL = os.getenv("AGENT_MANAGER_URL", "http://127.0.0.1:8004/mcp")
 AGENT_MOOD_URL = os.getenv("AGENT_MOOD_URL", "http://127.0.0.1:8001/mcp")
 AGENT_CERVEAU_URL = os.getenv("AGENT_CERVEAU_URL", "http://127.0.0.1:8002/mcp")
 AGENT_SPEECH_URL = os.getenv("AGENT_SPEECH_URL", "http://127.0.0.1:8006/mcp")
+AGENT_KNOWLEDGE_URL = os.getenv("AGENT_KNOWLEDGE_URL", "http://127.0.0.1:8007/mcp")
 
 
 async def call_agent(url: str, message: Dict[str, Any]) -> Dict[str, Any]:
@@ -34,10 +37,11 @@ async def call_agent(url: str, message: Dict[str, Any]) -> Dict[str, Any]:
 class ServiceCommand:
     """
     Représente une commande telle que renvoyée par l'agent_manager :
-      - service : ex. "mood", "coaching", "speech"
-      - command : ex. "analyze_mood", "coach_response", "transcribe_audio"
+      - service : ex. "mood", "coaching", "speech", "knowledge"
+      - command : ex. "analyze_mood", "coach_response", "transcribe_audio",
+                  "nutrition_suggestions"
       - text    : texte sur lequel ce service doit travailler
-                 (pour speech, on l'utilise comme chemin de fichier audio)
+                 (pour speech, on peut l'utiliser comme chemin de fichier audio)
     """
 
     service: str
@@ -60,7 +64,8 @@ class ServiceRegistry:
       - appel de l'agent_mood
       - appel de l'agent_cerveau
       - appel de l'agent_speech
-      - plus tard : agent_vision, agent_speech, etc.
+      - appel de l'agent_knowledge
+      - plus tard : agent_vision, etc.
     """
 
     def __init__(self) -> None:
@@ -115,10 +120,12 @@ class ServiceRegistry:
           - mood/analyze_mood
           - coaching/coach_response
           - speech/transcribe_audio
+          - knowledge/nutrition_suggestions
         """
         self.register("mood", "analyze_mood", self._handle_mood_analyze)
         self.register("coaching", "coach_response", self._handle_coach_response)
         self.register("speech", "transcribe_audio", self._handle_speech_transcribe)
+        self.register("knowledge", "nutrition_suggestions", self._handle_knowledge_nutrition)
 
     # ------------------------ Utils de mapping mood ----------------------- #
     @staticmethod
@@ -306,5 +313,51 @@ class ServiceRegistry:
             if payload.get("status") != "ok":
                 return None
             return payload
+        except Exception:
+            return None
+
+    async def _handle_knowledge_nutrition(
+        self,
+        command: ServiceCommand,
+        user_id: Optional[str],
+        mood_state: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Appelle l'agent_knowledge pour obtenir des suggestions nutritionnelles.
+
+        L'agent_knowledge renvoie un payload du type :
+
+          {
+            "status": "ok",
+            "task": "nutrition_suggestions",
+            "goal": "...",
+            "result": {
+              "goal": "...",
+              "sql": "...",
+              "suggestions": [...]
+            }
+          }
+
+        On renvoie uniquement le champ "result" à l'orchestrateur.
+        """
+
+        msg: Dict[str, Any] = {
+            "message_id": str(uuid.uuid4()),
+            "type": "request",
+            "from_agent": "orchestrator",
+            "to_agent": "agent_knowledge",
+            "payload": {
+                "task": "nutrition_suggestions",
+                "goal": command.text,
+            },
+            "context": {"user_id": user_id} if user_id else {},
+        }
+
+        try:
+            resp = await call_agent(AGENT_KNOWLEDGE_URL, msg)
+            payload = resp.get("payload", {}) or {}
+            if payload.get("status") != "ok":
+                return None
+            return payload.get("result")
         except Exception:
             return None
