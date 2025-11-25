@@ -1,3 +1,5 @@
+# services/orchestrator/app/mcp/handler.py
+
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +19,7 @@ async def _route_with_manager(
     user_input: str,
     user_id: Optional[str],
     audio_path: Optional[str],
+    image_path: Optional[str],
 ) -> List[Dict[str, Any]]:
     """
     Appelle l'agent_manager pour obtenir la liste des services à exécuter.
@@ -31,6 +34,9 @@ async def _route_with_manager(
 
     Si audio_path est fourni, il est transmis à l'agent_manager pour qu'il
     ajoute éventuellement un service "speech"/"transcribe_audio".
+
+    Si image_path est fourni, il est transmis à l'agent_manager pour qu'il
+    ajoute éventuellement un service "vision"/"analyze_meal_image".
     """
 
     payload: Dict[str, Any] = {
@@ -39,6 +45,8 @@ async def _route_with_manager(
     }
     if audio_path:
         payload["audio_path"] = audio_path
+    if image_path:
+        payload["image_path"] = image_path
 
     msg: Dict[str, Any] = {
         "message_id": str(uuid.uuid4()),
@@ -59,6 +67,9 @@ async def _route_with_manager(
     if not isinstance(services, list):
         return []
 
+    # Debug optionnel
+    print("[ORCH] services reçus depuis agent_manager :", services, flush=True)
+
     return services
 
 
@@ -74,6 +85,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
       - task: "process_user_input"
       - user_input: str (facultatif, texte brut fourni par l'interface)
       - audio_path: str (facultatif, chemin/identifiant du fichier audio)
+      - image_path: str (facultatif, chemin/identifiant de l'image du repas)
 
     La réponse contient :
       - status: "ok" ou "error"
@@ -83,6 +95,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
       - coach_answer: str ou None
       - speech_transcription: dict ou None
       - nutrition_result: dict ou None
+      - vision_result: dict ou None
       - called_services: liste brute des services reçus de l'agent_manager
 
     Comportement vocal :
@@ -113,11 +126,17 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
 
     user_input: str = payload.get("user_input", "") or ""
     audio_path: Optional[str] = payload.get("audio_path")
+    image_path: Optional[str] = payload.get("image_path")
 
     # -------------------------------------------------------------------------
     # 1) Appeler l'agent_manager pour savoir quels services exécuter
     # -------------------------------------------------------------------------
-    services = await _route_with_manager(user_input, user_id, audio_path)
+    services = await _route_with_manager(
+        user_input=user_input,
+        user_id=user_id,
+        audio_path=audio_path,
+        image_path=image_path,
+    )
 
     # Convertir vers des objets ServiceCommand
     service_commands: List[ServiceCommand] = []
@@ -147,6 +166,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     transcribed_text: Optional[str] = None
 
     nutrition_result: Optional[Dict[str, Any]] = None
+    vision_result: Optional[Dict[str, Any]] = None
 
     # On stocke les commandes "coaching" pour les exécuter en dernier
     coaching_commands: List[ServiceCommand] = []
@@ -154,6 +174,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     # ------------------------- 2.1 Première passe ----------------------------
     # On exécute :
     #  - speech/transcribe_audio
+    #  - vision/analyze_meal_image
     #  - mood/analyze_mood
     #  - nutrition/analyze_meal
     #  - knowledge/nutrition_suggestions
@@ -173,6 +194,18 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
                 text_from_speech = result.get("output_text")
                 if isinstance(text_from_speech, str) and text_from_speech.strip():
                     transcribed_text = text_from_speech
+            continue
+
+        # Cas spécial : vision (analyse d'image)
+        if cmd.service == "vision" and cmd.command == "analyze_meal_image":
+            result = await service_registry.execute(
+                cmd,
+                user_id=user_id,
+                mood_state=mood_state,
+                nutrition_result=nutrition_result,
+            )
+            if isinstance(result, dict):
+                vision_result = result
             continue
 
         # On garde les commandes de coaching pour la 2ème passe
@@ -216,6 +249,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     # Maintenant qu'on a :
     #   - mood_state
     #   - nutrition_result
+    #   - vision_result (si dispo)
     #   - éventuellement transcribed_text
     # On peut appeler coaching/coach_response proprement.
     # -------------------------------------------------------------------------
@@ -244,6 +278,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
         "coach_answer": coach_answer,
         "speech_transcription": transcription_result,
         "nutrition_result": nutrition_result,
+        "vision_result": vision_result,
         "called_services": services,
     }
 

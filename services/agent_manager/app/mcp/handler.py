@@ -124,12 +124,13 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
 
     Tâche gérée :
       - "route_services" : reçoit un texte utilisateur (et éventuellement un
-        chemin audio) et décide quels services doivent être appelés.
+        chemin audio / une image) et décide quels services doivent être appelés.
 
     Payload attendu :
       - task: "route_services"
       - text: str (facultatif, texte de la demande)
       - audio_path: str (facultatif, chemin d'un fichier audio à transcrire)
+      - image_path: str (facultatif, chemin d'une image à analyser)
 
     Réponse :
       - status: "ok" ou "error"
@@ -156,6 +157,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
 
     user_text: str = payload.get("text", "") or ""
     audio_path: Optional[str] = payload.get("audio_path")
+    image_path: Optional[str] = payload.get("image_path")
 
     services: List[Dict[str, Any]] = []
     error_info: Optional[str] = None
@@ -174,6 +176,19 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
         )
 
     # ------------------------------------------------------------------ #
+    # 1-bis) Si un chemin d'image est fourni, on ajoute un service vision.
+    # ------------------------------------------------------------------ #
+    if image_path:
+        services.append(
+            {
+                "service": "vision",
+                "command": "analyze_meal_image",
+                # Pour l'agent_vision, "text" transporte le chemin de l'image.
+                "text": image_path,
+            }
+        )
+
+    # ------------------------------------------------------------------ #
     # 2) Utiliser le LLM routeur pour les autres services (mood, coaching,
     #    nutrition, history), à partir du texte utilisateur.
     # ------------------------------------------------------------------ #
@@ -183,7 +198,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             llm_client = LLMClient()
             llm_output = llm_client.generate_json(router_prompt)
 
-            raw_services = llm_output.get("services", [])
+            raw_services = llm_output.get("services", [])  # type: ignore[assignment]
             if isinstance(raw_services, list):
                 for item in raw_services:
                     if not isinstance(item, dict):
