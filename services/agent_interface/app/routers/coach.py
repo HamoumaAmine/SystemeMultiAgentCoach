@@ -1,14 +1,12 @@
-# services/agent_interface/app/routers/coach.py
-
 from typing import Any, Dict
 
 import requests
 from fastapi import APIRouter, UploadFile, File, Header, HTTPException
 
-from core.config import settings
-from core.store import get_user_id_from_token
-from mcp.client import send_mcp
-from models.schemas import UserMessage, CoachResponse
+from app.core.config import settings
+from app.core.store import get_user_id_from_token
+from app.mcp.client import send_mcp
+from app.models.schemas import UserMessage, CoachResponse
 
 router = APIRouter(prefix="/coach", tags=["coach"])
 
@@ -21,10 +19,10 @@ def talk_to_coach(
     authorization: str = Header(...),
 ):
     """
-    Endpoint texte : envoie le message utilisateur à l'orchestrateur.
+    Endpoint TEXTE : envoie le message utilisateur à l'orchestrateur.
 
-    - Récupère user_id depuis le token
-    - Appelle l'orchestrateur avec task="process_user_input"
+    - Récupère user_id depuis le token Authorization.
+    - Appelle l'orchestrateur avec task="process_user_input".
     """
     token = authorization.replace("Bearer ", "")
     user_id = get_user_id_from_token(token)
@@ -53,12 +51,12 @@ async def talk_to_coach_voice(
     file: UploadFile = File(...),
 ):
     """
-    Endpoint vocal :
+    Endpoint VOCAL :
 
-      1) Envoie l'audio à agent_speech (/transcribe-file) pour obtenir la transcription.
-      2) Envoie la transcription à l'orchestrateur comme un message texte.
+      1) Envoie le fichier audio à agent_speech (/transcribe-file) pour obtenir la transcription.
+      2) Envoie la transcription à l'orchestrateur comme si c'était un message texte.
 
-    On récupère user_id depuis le token, comme pour le texte.
+    On récupère user_id depuis le token (comme pour le texte).
     """
     token = authorization.replace("Bearer ", "")
     user_id = get_user_id_from_token(token)

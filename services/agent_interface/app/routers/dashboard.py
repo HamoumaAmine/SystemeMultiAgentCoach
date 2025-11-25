@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Header, HTTPException
-from models.schemas import DashboardResponse, ServiceCard
-from core.store import get_user_id_from_token, PROFILES
+
+from app.models.schemas import DashboardResponse, ServiceCard
+from app.core.store import get_user_id_from_token, PROFILES
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -14,18 +15,22 @@ DEFAULT_SERVICES = [
 ]
 
 GOAL_LABELS = {
-    "lose": "perte de poids",
-    "gain": "prise de masse",
-    "fit": "remise en forme",
-    "perf": "performance"
+    "perte_poids": "Perte de poids",
+    "prise_masse": "Prise de masse",
+    "reprise": "Reprise en douceur",
+    "performance": "Performance",
 }
 
+
 @router.get("/", response_model=DashboardResponse)
-def dashboard(authorization: str = Header(...)):
+def get_dashboard(authorization: str = Header(...)):
+    """
+    Renvoie un petit résumé de l'état de l'utilisateur + les cartes de services.
+    """
     token = authorization.replace("Bearer ", "")
     user_id = get_user_id_from_token(token)
     if not user_id:
-        raise HTTPException(401, "Token invalide")
+        raise HTTPException(status_code=401, detail="Token invalide")
 
     profile = PROFILES.get(user_id, {})
     goal_code = profile.get("goal", "non défini")
@@ -38,5 +43,5 @@ def dashboard(authorization: str = Header(...)):
         goal_summary=f"{goal_label} • {sessions} séances/sem",
         mood_summary="neutre",
         progress_summary="premiers jours",
-        services=DEFAULT_SERVICES
+        services=DEFAULT_SERVICES,
     )

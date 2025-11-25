@@ -4,7 +4,8 @@ import uuid
 from typing import Any, Dict, Optional
 
 import requests
-from core.config import settings
+
+from app.core.config import settings
 
 
 def send_mcp(
@@ -33,6 +34,7 @@ def send_mcp(
         "context": context,
     }
 
+    # On envoie toujours vers l'URL de l'orchestrateur définie dans config
     url = f"{settings.ORCHESTRATOR_URL}/mcp"
     resp = requests.post(url, json=message, timeout=20)
     resp.raise_for_status()
