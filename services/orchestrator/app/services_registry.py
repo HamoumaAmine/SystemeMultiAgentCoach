@@ -21,6 +21,8 @@ AGENT_SPEECH_URL = os.getenv("AGENT_SPEECH_URL", "http://127.0.0.1:8006/mcp")
 AGENT_KNOWLEDGE_URL = os.getenv(
     "AGENT_KNOWLEDGE_URL", "http://127.0.0.1:8007/mcp"
 )
+# TODO (plus tard) : URL de l'agent_vision quand on l’intègre via l’orchestrateur
+# AGENT_VISION_URL = os.getenv("AGENT_VISION_URL", "http://127.0.0.1:8008/mcp")
 
 
 async def call_agent(url: str, message: Dict[str, Any]) -> Dict[str, Any]:
@@ -52,10 +54,10 @@ class ServiceCommand:
 # Type d'un handler pour un service.
 ServiceHandler = Callable[
     [
-        ServiceCommand,  # commande
-        Optional[str],  # user_id
-        Optional[Dict[str, Any]],  # mood_state
-        Optional[Dict[str, Any]],  # nutrition_result
+        ServiceCommand,              # commande
+        Optional[str],               # user_id
+        Optional[Dict[str, Any]],    # mood_state
+        Optional[Dict[str, Any]],    # nutrition_result
     ],
     Awaitable[Any],
 ]
@@ -145,6 +147,9 @@ class ServiceRegistry:
             "nutrition_suggestions",
             self._handle_knowledge_nutrition,
         )
+
+        # TODO (plus tard) :
+        # self.register("vision", "analyze_meal_image", self._handle_vision_analyze_meal)
 
     # ------------------------ Utils de mapping mood ----------------------- #
     @staticmethod
@@ -249,6 +254,16 @@ class ServiceRegistry:
         mood_state: Optional[Dict[str, Any]],
         nutrition_result: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
+        """
+        Appelle l'agent_cerveau pour générer la réponse de coaching.
+
+        On lui passe :
+          - user_input = command.text
+          - mood_state = dict éventuellement issu de l'agent_mood
+          - mood = mood_state["mood_label"] si dispo
+          - expert_knowledge = [nutrition_result] quand on a des données
+            provenant de l'agent_knowledge.
+        """
 
         payload: Dict[str, Any] = {
             "task": "coach_response",
@@ -263,7 +278,7 @@ class ServiceRegistry:
             if mood_label:
                 payload["mood"] = mood_label
 
-        # 🔥 AJOUT CRUCIAL : envoyer la nutrition !
+        # 🔥 Envoi des données nutritionnelles comme connaissances expertes
         if nutrition_result:
             payload["expert_knowledge"] = [nutrition_result]
         else:
@@ -287,7 +302,6 @@ class ServiceRegistry:
             return payload_resp.get("answer")
         except Exception:
             return None
-
 
     async def _handle_speech_transcribe(
         self,

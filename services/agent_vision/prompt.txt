@@ -1,0 +1,30 @@
+Analyse cette image d’un plat et retourne UNIQUEMENT un JSON au format suivant :
+
+{
+  "aliments_detectes": [
+    "aliment 1",
+    "aliment 2"
+  ],
+  "ingredients_probables": [
+    "ingrédient probable 1",
+    "ingrédient probable 2"
+  ],
+  "calories_estimees": {
+    "total_kcal_approx": 0,
+    "par_aliment": [
+      {
+        "aliment": "nom",
+        "kcal_approx": 0
+      }
+    ],
+    "niveau_calorique": "faible | moyen | eleve"
+  },
+  "description_generale": "courte description du plat",
+  "niveau_confiance": "faible | moyen | eleve",
+  "limitations": "ce que tu n'es pas sûr d'avoir bien identifié"
+}
+
+Contraintes :
+- Respecte exactement ce format JSON (noms des clés, structure).
+- Utilise uniquement des nombres pour les calories (entiers ou décimaux).
+- Ne rajoute AUCUN texte en dehors de ce JSON.
