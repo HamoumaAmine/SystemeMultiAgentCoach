@@ -10,15 +10,21 @@ from app.mcp.schemas import MCPMessage, MCPResponse
 
 def _fallback_decide_services(user_text: str) -> List[Dict[str, Any]]:
     """
-    Stratégie de secours quand le LLM routeur ne répond pas correctement.
+    Stratégie de secours / d'enrichissement basée sur des mots-clés.
 
-    On utilise quelques règles simples basées sur des mots-clés pour choisir
-    les services "mood", "coaching" et "nutrition".
+    On utilise quelques règles simples pour choisir les services
+    "mood", "coaching" et "nutrition".
+
+    ⚠️ IMPORTANT :
+    - Cette fonction est utilisée même quand le LLM routeur répond,
+      pour S'AJOUTER aux services proposés, sans doublon.
     """
     text_lower = user_text.lower()
     services: List[Dict[str, Any]] = []
 
+    # ------------------------------------------------------------------ #
     # Mots-clés liés à l'humeur
+    # ------------------------------------------------------------------ #
     mood_keywords = [
         "fatigué",
         "fatigue",
@@ -40,7 +46,9 @@ def _fallback_decide_services(user_text: str) -> List[Dict[str, Any]]:
             }
         )
 
+    # ------------------------------------------------------------------ #
     # Mots-clés liés au sport / entraînement
+    # ------------------------------------------------------------------ #
     coaching_keywords = [
         "sport",
         "séance",
@@ -64,11 +72,16 @@ def _fallback_decide_services(user_text: str) -> List[Dict[str, Any]]:
             }
         )
 
+    # ------------------------------------------------------------------ #
     # Mots-clés liés à la nutrition
+    #  + objectifs de poids (perdre du poids, maigrir, etc.)
+    # ------------------------------------------------------------------ #
     nutrition_keywords = [
         "repas",
         "déjeuner",
+        "dejeuner",
         "dîner",
+        "diner",
         "calories",
         "calorique",
         "manger",
@@ -79,7 +92,21 @@ def _fallback_decide_services(user_text: str) -> List[Dict[str, Any]]:
         "burger",
         "pizza",
     ]
-    if any(k in text_lower for k in nutrition_keywords):
+
+    weight_goal_keywords = [
+        "perdre du poids",
+        "perte de poids",
+        "perdre du gras",
+        "perte de gras",
+        "maigrir",
+        "mincir",
+        "sèche",
+        "seche",
+    ]
+
+    if any(k in text_lower for k in nutrition_keywords) or any(
+        k in text_lower for k in weight_goal_keywords
+    ):
         services.append(
             {
                 "service": "nutrition",
@@ -177,10 +204,26 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             error_info = f"Erreur LLM router: {e!r}"
 
     # ------------------------------------------------------------------ #
-    # 3) Si aucun service n'est trouvé, utiliser le fallback
+    # 3) Calculer les services de fallback (mots-clés) ET les fusionner
+    #    avec ceux du LLM, sans doublons.
     # ------------------------------------------------------------------ #
-    if not services and user_text.strip():
-        services = _fallback_decide_services(user_text)
+    fallback_services: List[Dict[str, Any]] = []
+    if user_text.strip():
+        fallback_services = _fallback_decide_services(user_text)
+
+    if fallback_services:
+        existing_pairs = {
+            (s.get("service"), s.get("command"))
+            for s in services
+            if isinstance(s, dict)
+        }
+        for fs in fallback_services:
+            key = (fs.get("service"), fs.get("command"))
+            if key not in existing_pairs:
+                services.append(fs)
+
+    # (Optionnel) log debug pour voir ce qui est renvoyé
+    # print("[AGENT_MANAGER] services finaux :", services, flush=True)
 
     response_payload: Dict[str, Any] = {
         "status": "ok",
