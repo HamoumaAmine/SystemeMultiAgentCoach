@@ -1,3 +1,5 @@
+# services/agent_interface/app/routers/coach.py
+
 from typing import Any, Dict
 
 import requests
@@ -55,8 +57,6 @@ async def talk_to_coach_voice(
 
       1) Envoie le fichier audio à agent_speech (/transcribe-file) pour obtenir la transcription.
       2) Envoie la transcription à l'orchestrateur comme si c'était un message texte.
-
-    On récupère user_id depuis le token (comme pour le texte).
     """
     token = authorization.replace("Bearer ", "")
     user_id = get_user_id_from_token(token)
