@@ -11,9 +11,11 @@ RÈGLES STRICTES :
 7. Si tu calcules un score, utilise une **sous-requête** pour générer la colonne `score`, puis `ORDER BY score DESC` dans la requête externe.
 
 LOGIQUE DE GÉNÉRATION :
-- Si la demande contient un mot-clé explicite de tri ou filtre → utilise ORDER BY + ASC/DESC ou WHERE LIKE.
-- Si la demande indique un objectif nutritionnel (perte de poids, prise de masse), calcule un score pondéré basé sur les colonnes pertinentes (voir ci-dessous).
-- Sinon → SELECT * FROM foods LIMIT 10.
+- Si la demande contient un mot-clé explicite de tri ou de filtre → utilise ORDER BY + ASC/DESC ou WHERE LIKE.
+- Si la demande indique un objectif nutritionnel (perte de poids, prise de masse), calcule un score pondéré basé sur les colonnes pertinentes (voir ci-dessous) et trie par ce score.
+- Si la demande est vague ou générale → renvoie une requête de type :
+  SELECT * FROM "foods"
+  LIMIT 50;
 
 Objectifs nutritionnels et score :
 - Perte de poids :  
@@ -28,6 +30,6 @@ Objectifs nutritionnels et score :
          - (0.5 * "lipides_g_100g")
 
 Important :
-- Exclure les valeurs "-" ou "< X" pour toutes les colonnes utilisées dans le score.
-- Toujours mettre `LIMIT 50`.
+- Exclure les valeurs "-" ou "< X" pour toutes les colonnes utilisées dans le score, via des filtres WHERE.
+- Toujours mettre `LIMIT 50` à la fin de la requête.
 - Génère uniquement la requête SQL valide compatible SQLite.
