@@ -16,6 +16,7 @@ service_registry = ServiceRegistry()
 async def _route_with_manager(
     user_input: str,
     user_id: Optional[str],
+    audio_path: Optional[str],
 ) -> List[Dict[str, Any]]:
     """
     Appelle l'agent_manager pour obtenir la liste des services à exécuter.
@@ -26,27 +27,34 @@ async def _route_with_manager(
         "command": "analyze_mood",
         "text": "..."
       }
+
+    Si audio_path est fourni, il est transmis à l'agent_manager pour qu'il
+    ajoute un service "speech"/"transcribe_audio".
     """
+
+    payload: Dict[str, Any] = {
+        "task": "route_services",
+        "text": user_input,
+    }
+    if audio_path:
+        payload["audio_path"] = audio_path
 
     msg: Dict[str, Any] = {
         "message_id": str(uuid.uuid4()),
         "from_agent": "orchestrator",
         "to_agent": "agent_manager",
         "type": "request",
-        "payload": {
-            "task": "route_services",
-            "text": user_input,
-        },
+        "payload": payload,
         "context": {"user_id": user_id} if user_id else {},
     }
 
     response = await call_agent(AGENT_MANAGER_URL, msg)
-    payload = response.get("payload", {}) or {}
+    payload_resp = response.get("payload", {}) or {}
 
-    if payload.get("status") != "ok":
+    if payload_resp.get("status") != "ok":
         return []
 
-    services = payload.get("services", [])
+    services = payload_resp.get("services", [])
     if not isinstance(services, list):
         return []
 
@@ -59,11 +67,12 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
 
     Tâche gérée :
       - "process_user_input" : reçoit un texte utilisateur (et éventuellement
-        une transcription audio), orchestre les appels aux autres agents.
+        un chemin audio), orchestre les appels aux autres agents.
 
     Entrée attendue dans payload :
       - task: "process_user_input"
       - user_input: str (facultatif, texte brut fourni par l'interface)
+      - audio_path: str (facultatif, chemin du fichier audio à transcrire)
 
     La réponse contient :
       - status: "ok" ou "error"
@@ -75,9 +84,9 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
       - called_services: liste des services exécutés
 
     Comportement particulier :
-      - si un service "speech"/"transcribe_audio" est exécuté en premier et
-        renvoie un "output_text", ce texte est utilisé comme entrée pour les
-        services suivants (mood, coaching, etc.).
+      - si un service "speech"/"transcribe_audio" est exécuté et renvoie un
+        "output_text", ce texte est utilisé comme entrée pour les services
+        suivants (mood, coaching, etc.).
     """
 
     payload: Dict[str, Any] = msg.get("payload", {}) or {}
@@ -101,11 +110,12 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
         )
 
     user_input: str = payload.get("user_input", "") or ""
+    audio_path: Optional[str] = payload.get("audio_path")
 
     # -------------------------------------------------------------------------
     # 1) Appeler l'agent_manager pour savoir quels services exécuter
     # -------------------------------------------------------------------------
-    services = await _route_with_manager(user_input, user_id)
+    services = await _route_with_manager(user_input, user_id, audio_path)
 
     # Convertir vers des objets ServiceCommand
     service_commands: List[ServiceCommand] = []
@@ -131,7 +141,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     mood_state: Optional[Dict[str, Any]] = None
     coach_answer: Optional[str] = None
 
-    # Nouveau : pour gérer la transcription de l'audio
+    # Pour gérer la transcription de l'audio
     transcription_result: Optional[Dict[str, Any]] = None
     transcribed_text: Optional[str] = None
 
@@ -152,12 +162,12 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
                 if isinstance(text_from_speech, str) and text_from_speech.strip():
                     transcribed_text = text_from_speech
 
-            # On passe au service suivant (on ne traite pas mood/coach ici)
+            # On passe au service suivant
             continue
 
         # -------------------------------------------------------------
-        # 2.b) Pour les autres services (mood, coaching, nutrition...)
-        #      si une transcription existe, on l'utilise comme texte.
+        # 2.b) Pour les autres services, si une transcription existe,
+        #      on l'utilise comme texte d'entrée.
         # -------------------------------------------------------------
         if transcribed_text:
             cmd.text = transcribed_text
