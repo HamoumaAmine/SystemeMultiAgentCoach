@@ -1,21 +1,36 @@
+# services/agent_manager/app/mcp/handler.py
+
 import uuid
-import json
 from typing import Any, Dict, List, Optional
 
-from app.mcp.schemas import MCPResponse
 from app.llm.client import LLMClient
 from app.llm.prompts import build_router_prompt
+from app.mcp.schemas import MCPMessage, MCPResponse
 
 
 def _fallback_decide_services(user_text: str) -> List[Dict[str, Any]]:
     """
-    Fallback simple au cas où le LLM échoue.
-    Même logique que la version précédente règle-based.
+    Stratégie de secours quand le LLM routeur ne répond pas correctement.
+
+    On utilise quelques règles simples basées sur des mots-clés pour choisir
+    les services "mood", "coaching" et "nutrition".
     """
-    text_lower = (user_text or "").lower()
+    text_lower = user_text.lower()
     services: List[Dict[str, Any]] = []
 
-    mood_keywords = ["fatigué", "fatigue", "stressé", "stresse", "motivé", "motivation", "moral"]
+    # Mots-clés liés à l'humeur
+    mood_keywords = [
+        "fatigué",
+        "fatigue",
+        "épuisé",
+        "stressé",
+        "déprimé",
+        "motivé",
+        "démotivé",
+        "anxieux",
+        "angoissé",
+        "moral",
+    ]
     if any(k in text_lower for k in mood_keywords):
         services.append(
             {
@@ -25,7 +40,21 @@ def _fallback_decide_services(user_text: str) -> List[Dict[str, Any]]:
             }
         )
 
-    coaching_keywords = ["sport", "séance", "seance", "entrainement", "entraînement", "programme", "courir", "marathon"]
+    # Mots-clés liés au sport / entraînement
+    coaching_keywords = [
+        "sport",
+        "séance",
+        "entrainement",
+        "entraînement",
+        "programme",
+        "musculation",
+        "cardio",
+        "course",
+        "marathon",
+        "footing",
+        "perte de poids",
+        "reprendre le sport",
+    ]
     if any(k in text_lower for k in coaching_keywords) or not services:
         services.append(
             {
@@ -35,8 +64,22 @@ def _fallback_decide_services(user_text: str) -> List[Dict[str, Any]]:
             }
         )
 
-    food_keywords = ["mangé", "mange", "repas", "déjeuner", "dîner", "couscous", "pizza", "calories"]
-    if any(k in text_lower for k in food_keywords):
+    # Mots-clés liés à la nutrition
+    nutrition_keywords = [
+        "repas",
+        "déjeuner",
+        "dîner",
+        "calories",
+        "calorique",
+        "manger",
+        "nutrition",
+        "plat",
+        "menu",
+        "couscous",
+        "burger",
+        "pizza",
+    ]
+    if any(k in text_lower for k in nutrition_keywords):
         services.append(
             {
                 "service": "nutrition",
@@ -50,11 +93,24 @@ def _fallback_decide_services(user_text: str) -> List[Dict[str, Any]]:
 
 async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     """
-    Agent_Manager : reçoit une requête et renvoie une liste de services à appeler.
+    Gestionnaire MCP pour l'agent_manager.
 
-    Tâche principale :
-      - "route_services"
+    Tâche gérée :
+      - "route_services" : reçoit un texte utilisateur (et éventuellement un
+        chemin audio) et décide quels services doivent être appelés.
+
+    Payload attendu :
+      - task: "route_services"
+      - text: str (facultatif, texte de la demande)
+      - audio_path: str (facultatif, chemin d'un fichier audio à transcrire)
+
+    Réponse :
+      - status: "ok" ou "error"
+      - task: "route_services"
+      - services: liste de dicts {service, command, text, ...}
+      - llm_error: message d'erreur éventuel du routeur LLM
     """
+
     payload: Dict[str, Any] = msg.get("payload", {}) or {}
     context: Dict[str, Any] = msg.get("context", {}) or {}
     task: Optional[str] = payload.get("task")
@@ -71,42 +127,59 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             context=context,
         )
 
-    user_text: str = payload.get("text", "")
+    user_text: str = payload.get("text", "") or ""
+    audio_path: Optional[str] = payload.get("audio_path")
 
     services: List[Dict[str, Any]] = []
     error_info: Optional[str] = None
 
-    # 1) Tenter la version LLM (Groq)
-    try:
-        router_prompt = build_router_prompt(user_text)
-        llm_client = LLMClient()
-        llm_output = llm_client.generate_json(router_prompt)
+    # ------------------------------------------------------------------ #
+    # 1) Si un chemin audio est fourni, on ajoute systématiquement
+    #    un service speech/transcribe_audio.
+    # ------------------------------------------------------------------ #
+    if audio_path:
+        services.append(
+            {
+                "service": "speech",
+                "command": "transcribe_audio",
+                "text": audio_path,  # utilisé comme chemin audio par le registry
+            }
+        )
 
-        # On s'attend à {"services": [...]}
-        raw_services = llm_output.get("services", [])
-        if isinstance(raw_services, list):
-            # On garde uniquement les dicts bien formés
-            for item in raw_services:
-                if not isinstance(item, dict):
-                    continue
-                service_name = item.get("service")
-                command = item.get("command")
-                text_for_service = item.get("text", user_text)
-                if service_name and command:
+    # ------------------------------------------------------------------ #
+    # 2) Utiliser le LLM routeur pour les autres services (mood, coaching,
+    #    nutrition, history), à partir du texte utilisateur.
+    # ------------------------------------------------------------------ #
+    if user_text.strip():
+        try:
+            router_prompt = build_router_prompt(user_text)
+            llm_client = LLMClient()
+            llm_output = llm_client.generate_json(router_prompt)
+
+            raw_services = llm_output.get("services", [])
+            if isinstance(raw_services, list):
+                for item in raw_services:
+                    if not isinstance(item, dict):
+                        continue
+                    svc = item.get("service")
+                    cmd = item.get("command")
+                    txt = item.get("text", user_text)
+                    if not svc or not cmd:
+                        continue
                     services.append(
                         {
-                            "service": service_name,
-                            "command": command,
-                            "text": text_for_service,
+                            "service": svc,
+                            "command": cmd,
+                            "text": txt,
                         }
                     )
+        except Exception as e:
+            error_info = f"Erreur LLM router: {e!r}"
 
-    except Exception as e:
-        # On note l'erreur mais on ne casse pas tout
-        error_info = f"Erreur LLM router: {e!r}"
-
-    # 2) Si le LLM n'a rien produit, fallback sur règles simples
-    if not services:
+    # ------------------------------------------------------------------ #
+    # 3) Si aucun service n'est trouvé, utiliser le fallback
+    # ------------------------------------------------------------------ #
+    if not services and user_text.strip():
         services = _fallback_decide_services(user_text)
 
     response_payload: Dict[str, Any] = {

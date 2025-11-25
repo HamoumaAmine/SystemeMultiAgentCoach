@@ -94,3 +94,7 @@ images/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Audio de test
+*.mp3
+services/agent_speech/samples/

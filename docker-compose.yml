@@ -79,6 +79,20 @@ services:
     networks:
       - smartcoach_net
 
+  agent_speech:
+    build:
+      context: ./services/agent_speech
+      dockerfile: Dockerfile
+    container_name: agent_speech
+    ports:
+      - "8006:8006"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    networks:
+      - smartcoach_net
+
+
   # Tu pourras ajouter plus tard :
   # agent_speech:
   #   build:

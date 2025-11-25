@@ -17,6 +17,7 @@ import httpx
 AGENT_MANAGER_URL = os.getenv("AGENT_MANAGER_URL", "http://127.0.0.1:8004/mcp")
 AGENT_MOOD_URL = os.getenv("AGENT_MOOD_URL", "http://127.0.0.1:8001/mcp")
 AGENT_CERVEAU_URL = os.getenv("AGENT_CERVEAU_URL", "http://127.0.0.1:8002/mcp")
+AGENT_SPEECH_URL = os.getenv("AGENT_SPEECH_URL", "http://127.0.0.1:8006/mcp")
 
 
 async def call_agent(url: str, message: Dict[str, Any]) -> Dict[str, Any]:
@@ -33,9 +34,10 @@ async def call_agent(url: str, message: Dict[str, Any]) -> Dict[str, Any]:
 class ServiceCommand:
     """
     Représente une commande telle que renvoyée par l'agent_manager :
-      - service : ex. "mood", "coaching"
-      - command : ex. "analyze_mood", "coach_response"
+      - service : ex. "mood", "coaching", "speech"
+      - command : ex. "analyze_mood", "coach_response", "transcribe_audio"
       - text    : texte sur lequel ce service doit travailler
+                 (pour speech, on l'utilise comme chemin de fichier audio)
     """
 
     service: str
@@ -57,6 +59,7 @@ class ServiceRegistry:
     L'Orchestrator lui délègue l'exécution concrète :
       - appel de l'agent_mood
       - appel de l'agent_cerveau
+      - appel de l'agent_speech
       - plus tard : agent_vision, agent_speech, etc.
     """
 
@@ -111,9 +114,11 @@ class ServiceRegistry:
         Enregistre les handlers de base :
           - mood/analyze_mood
           - coaching/coach_response
+          - speech/transcribe_audio
         """
         self.register("mood", "analyze_mood", self._handle_mood_analyze)
         self.register("coaching", "coach_response", self._handle_coach_response)
+        self.register("speech", "transcribe_audio", self._handle_speech_transcribe)
 
     # ------------------------ Utils de mapping mood ----------------------- #
     @staticmethod
@@ -254,5 +259,52 @@ class ServiceRegistry:
                 return None
 
             return payload_resp.get("answer")
+        except Exception:
+            return None
+
+    async def _handle_speech_transcribe(
+        self,
+        command: ServiceCommand,
+        user_id: Optional[str],
+        mood_state: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Appelle l'agent_speech pour transcrire un fichier audio.
+
+        On s'attend à ce que command.text contienne le chemin du fichier audio.
+
+        L'agent_speech renvoie normalement un payload du type :
+          {
+            "status": "ok",
+            "task": "transcribe_audio",
+            "agent": "speech_to_text",
+            "input_file": "...",
+            "output_file": "...",
+            "output_text": "..."
+          }
+
+        On renvoie ce dict brut à l'orchestrateur, ou None en cas d'erreur.
+        """
+
+        audio_path = command.text
+
+        msg: Dict[str, Any] = {
+            "message_id": str(uuid.uuid4()),
+            "type": "request",
+            "from_agent": "orchestrator",
+            "to_agent": "agent_speech",
+            "payload": {
+                "task": "transcribe_audio",
+                "audio_path": audio_path,
+            },
+            "context": {"user_id": user_id} if user_id else {},
+        }
+
+        try:
+            resp = await call_agent(AGENT_SPEECH_URL, msg)
+            payload = resp.get("payload", {}) or {}
+            if payload.get("status") != "ok":
+                return None
+            return payload
         except Exception:
             return None

@@ -58,12 +58,12 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     Orchestrateur principal.
 
     Tâche gérée :
-      - "process_user_input" : reçoit un texte utilisateur, orchestre les appels
-        aux autres agents (mood, cerveau, etc.).
+      - "process_user_input" : reçoit un texte utilisateur (et éventuellement
+        une transcription audio), orchestre les appels aux autres agents.
 
     Entrée attendue dans payload :
       - task: "process_user_input"
-      - user_input: str
+      - user_input: str (facultatif, texte brut fourni par l'interface)
 
     La réponse contient :
       - status: "ok" ou "error"
@@ -71,7 +71,13 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
       - user_id: str ou None
       - mood_state: dict ou None
       - coach_answer: str ou None
+      - speech_transcription: dict ou None
       - called_services: liste des services exécutés
+
+    Comportement particulier :
+      - si un service "speech"/"transcribe_audio" est exécuté en premier et
+        renvoie un "output_text", ce texte est utilisé comme entrée pour les
+        services suivants (mood, coaching, etc.).
     """
 
     payload: Dict[str, Any] = msg.get("payload", {}) or {}
@@ -94,7 +100,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             context=context,
         )
 
-    user_input: str = payload.get("user_input", "")
+    user_input: str = payload.get("user_input", "") or ""
 
     # -------------------------------------------------------------------------
     # 1) Appeler l'agent_manager pour savoir quels services exécuter
@@ -125,14 +131,44 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     mood_state: Optional[Dict[str, Any]] = None
     coach_answer: Optional[str] = None
 
+    # Nouveau : pour gérer la transcription de l'audio
+    transcription_result: Optional[Dict[str, Any]] = None
+    transcribed_text: Optional[str] = None
+
     for cmd in service_commands:
+        # -------------------------------------------------------------
+        # 2.a) Cas spécial : service SPEECH (transcription audio)
+        # -------------------------------------------------------------
+        if cmd.service == "speech" and cmd.command == "transcribe_audio":
+            result = await service_registry.execute(
+                cmd,
+                user_id=user_id,
+                mood_state=mood_state,
+            )
+
+            if isinstance(result, dict):
+                transcription_result = result
+                text_from_speech = result.get("output_text")
+                if isinstance(text_from_speech, str) and text_from_speech.strip():
+                    transcribed_text = text_from_speech
+
+            # On passe au service suivant (on ne traite pas mood/coach ici)
+            continue
+
+        # -------------------------------------------------------------
+        # 2.b) Pour les autres services (mood, coaching, nutrition...)
+        #      si une transcription existe, on l'utilise comme texte.
+        # -------------------------------------------------------------
+        if transcribed_text:
+            cmd.text = transcribed_text
+
         result = await service_registry.execute(
             cmd,
             user_id=user_id,
             mood_state=mood_state,
         )
 
-        # Interprétation du résultat selon le service
+        # Interprétation du résultat selon le type de service
         if cmd.service == "mood" and cmd.command == "analyze_mood":
             if isinstance(result, dict):
                 mood_state = result
@@ -143,9 +179,8 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
 
         # Plus tard :
         # - service "nutrition"
-        # - service "speech"
         # - service "vision"
-        # etc.
+        # - etc.
 
     # -------------------------------------------------------------------------
     # 3) Construire la réponse globale
@@ -153,9 +188,10 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     response_payload: Dict[str, Any] = {
         "status": "ok",
         "task": "process_user_input",
-        "user_id": user_id,            # ← AJOUT IMPORTANT
+        "user_id": user_id,
         "mood_state": mood_state,
         "coach_answer": coach_answer,
+        "speech_transcription": transcription_result,
         "called_services": services,
     }
 
