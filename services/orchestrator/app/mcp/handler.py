@@ -25,11 +25,12 @@ async def _route_with_manager(
       {
         "service": "mood",
         "command": "analyze_mood",
-        "text": "..."
+        "text": "...",
+        ...
       }
 
     Si audio_path est fourni, il est transmis à l'agent_manager pour qu'il
-    ajoute un service "speech"/"transcribe_audio".
+    ajoute éventuellement un service "speech"/"transcribe_audio".
     """
 
     payload: Dict[str, Any] = {
@@ -72,7 +73,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     Entrée attendue dans payload :
       - task: "process_user_input"
       - user_input: str (facultatif, texte brut fourni par l'interface)
-      - audio_path: str (facultatif, chemin du fichier audio à transcrire)
+      - audio_path: str (facultatif, chemin/identifiant du fichier audio)
 
     La réponse contient :
       - status: "ok" ou "error"
@@ -82,12 +83,12 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
       - coach_answer: str ou None
       - speech_transcription: dict ou None
       - nutrition_result: dict ou None
-      - called_services: liste des services exécutés
+      - called_services: liste brute des services reçus de l'agent_manager
 
-    Comportement particulier :
+    Comportement vocal :
       - si un service "speech"/"transcribe_audio" est exécuté et renvoie un
         "output_text", ce texte est utilisé comme entrée pour les services
-        suivants (mood, coaching, knowledge, etc.).
+        suivants (mood, nutrition, coaching, etc.).
     """
 
     payload: Dict[str, Any] = msg.get("payload", {}) or {}
@@ -137,42 +138,50 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
         )
 
     # -------------------------------------------------------------------------
-    # 2) Exécuter chaque service via ServiceRegistry
+    # 2) Exécution des services en DEUX PASSES
     # -------------------------------------------------------------------------
     mood_state: Optional[Dict[str, Any]] = None
     coach_answer: Optional[str] = None
 
-    # Pour gérer la transcription de l'audio
     transcription_result: Optional[Dict[str, Any]] = None
     transcribed_text: Optional[str] = None
 
-    # Pour récupérer le résultat de l'agent_knowledge
     nutrition_result: Optional[Dict[str, Any]] = None
 
+    # On stocke les commandes "coaching" pour les exécuter en dernier
+    coaching_commands: List[ServiceCommand] = []
+
+    # ------------------------- 2.1 Première passe ----------------------------
+    # On exécute :
+    #  - speech/transcribe_audio
+    #  - mood/analyze_mood
+    #  - nutrition/analyze_meal
+    #  - knowledge/nutrition_suggestions
+    # On NE lance PAS encore coaching/coach_response ici.
+    # -------------------------------------------------------------------------
     for cmd in service_commands:
-        # -------------------------------------------------------------
-        # 2.a) Cas spécial : service SPEECH (transcription audio)
-        # -------------------------------------------------------------
+        # Cas spécial : speech
         if cmd.service == "speech" and cmd.command == "transcribe_audio":
             result = await service_registry.execute(
                 cmd,
                 user_id=user_id,
                 mood_state=mood_state,
+                nutrition_result=nutrition_result,
             )
-
             if isinstance(result, dict):
                 transcription_result = result
                 text_from_speech = result.get("output_text")
                 if isinstance(text_from_speech, str) and text_from_speech.strip():
                     transcribed_text = text_from_speech
-
-            # On passe au service suivant
             continue
 
-        # -------------------------------------------------------------
-        # 2.b) Pour les autres services, si une transcription existe,
-        #      on l'utilise comme texte d'entrée.
-        # -------------------------------------------------------------
+        # On garde les commandes de coaching pour la 2ème passe
+        if cmd.service == "coaching" and cmd.command == "coach_response":
+            coaching_commands.append(cmd)
+            continue
+
+        # Pour les autres services (mood, nutrition, knowledge...),
+        # si on a une transcription, on l'utilise comme texte.
         if transcribed_text:
             cmd.text = transcribed_text
 
@@ -180,25 +189,49 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             cmd,
             user_id=user_id,
             mood_state=mood_state,
+            nutrition_result=nutrition_result,
         )
 
         # Interprétation du résultat selon le type de service
         if cmd.service == "mood" and cmd.command == "analyze_mood":
-            if isinstance(result, dict):
+            if isinstance(result, Dict):
                 mood_state = result
 
-        if cmd.service == "coaching" and cmd.command == "coach_response":
-            if isinstance(result, str):
-                coach_answer = result
+        # Agent knowledge / nutrition (deux syntaxes possibles)
+        if (
+            cmd.service == "knowledge"
+            and cmd.command == "nutrition_suggestions"
+            and isinstance(result, dict)
+        ):
+            nutrition_result = result
 
-        if cmd.service == "knowledge" and cmd.command == "nutrition_suggestions":
-            if isinstance(result, dict):
-                nutrition_result = result
+        if (
+            cmd.service == "nutrition"
+            and cmd.command == "analyze_meal"
+            and isinstance(result, dict)
+        ):
+            nutrition_result = result
 
-        # Plus tard :
-        # - service "vision"
-        # - service "memory"
-        # - etc.
+    # ------------------------- 2.2 Deuxième passe ----------------------------
+    # Maintenant qu'on a :
+    #   - mood_state
+    #   - nutrition_result
+    #   - éventuellement transcribed_text
+    # On peut appeler coaching/coach_response proprement.
+    # -------------------------------------------------------------------------
+    for cmd in coaching_commands:
+        if transcribed_text:
+            cmd.text = transcribed_text
+
+        result = await service_registry.execute(
+            cmd,
+            user_id=user_id,
+            mood_state=mood_state,
+            nutrition_result=nutrition_result,
+        )
+
+        if isinstance(result, str):
+            coach_answer = result
 
     # -------------------------------------------------------------------------
     # 3) Construire la réponse globale

@@ -1,10 +1,8 @@
-# services/agent_interface/app/routers/ui.py
-
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-# IMPORTANT : chemin vers app/templates
+# Dossier des templates : app/templates
 templates = Jinja2Templates(directory="app/templates")
 
 router = APIRouter(prefix="/ui", tags=["ui"])

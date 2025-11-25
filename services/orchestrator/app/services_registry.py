@@ -12,15 +12,15 @@ import httpx
 # -------------------------------------------------------------------------
 # URLs des services : en local on utilise 127.0.0.1, en Docker on override
 # avec des variables d'environnement.
-#
-# Ici on garde la convention que l'URL inclut déjà /mcp.
 # -------------------------------------------------------------------------
 
 AGENT_MANAGER_URL = os.getenv("AGENT_MANAGER_URL", "http://127.0.0.1:8004/mcp")
 AGENT_MOOD_URL = os.getenv("AGENT_MOOD_URL", "http://127.0.0.1:8001/mcp")
 AGENT_CERVEAU_URL = os.getenv("AGENT_CERVEAU_URL", "http://127.0.0.1:8002/mcp")
 AGENT_SPEECH_URL = os.getenv("AGENT_SPEECH_URL", "http://127.0.0.1:8006/mcp")
-AGENT_KNOWLEDGE_URL = os.getenv("AGENT_KNOWLEDGE_URL", "http://127.0.0.1:8007/mcp")
+AGENT_KNOWLEDGE_URL = os.getenv(
+    "AGENT_KNOWLEDGE_URL", "http://127.0.0.1:8007/mcp"
+)
 
 
 async def call_agent(url: str, message: Dict[str, Any]) -> Dict[str, Any]:
@@ -37,11 +37,11 @@ async def call_agent(url: str, message: Dict[str, Any]) -> Dict[str, Any]:
 class ServiceCommand:
     """
     Représente une commande telle que renvoyée par l'agent_manager :
-      - service : ex. "mood", "coaching", "speech", "knowledge"
+      - service : ex. "mood", "coaching", "speech", "nutrition"
       - command : ex. "analyze_mood", "coach_response", "transcribe_audio",
-                  "nutrition_suggestions"
+                  "analyze_meal"
       - text    : texte sur lequel ce service doit travailler
-                 (pour speech, on peut l'utiliser comme chemin de fichier audio)
+                 (pour speech, on l'utilise comme chemin de fichier audio)
     """
 
     service: str
@@ -51,7 +51,12 @@ class ServiceCommand:
 
 # Type d'un handler pour un service.
 ServiceHandler = Callable[
-    [ServiceCommand, Optional[str], Optional[Dict[str, Any]]],
+    [
+        ServiceCommand,  # commande
+        Optional[str],  # user_id
+        Optional[Dict[str, Any]],  # mood_state
+        Optional[Dict[str, Any]],  # nutrition_result
+    ],
     Awaitable[Any],
 ]
 
@@ -64,8 +69,8 @@ class ServiceRegistry:
       - appel de l'agent_mood
       - appel de l'agent_cerveau
       - appel de l'agent_speech
-      - appel de l'agent_knowledge
-      - plus tard : agent_vision, etc.
+      - appel de l'agent_knowledge (nutrition)
+      - plus tard : agent_vision, agent_memory, etc.
     """
 
     def __init__(self) -> None:
@@ -104,12 +109,13 @@ class ServiceRegistry:
         *,
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
+        nutrition_result: Optional[Dict[str, Any]],
     ) -> Any:
         """
         Exécute le handler associé à la commande donnée.
         """
         handler = self.get_handler(command.service, command.command)
-        return await handler(command, user_id, mood_state)
+        return await handler(command, user_id, mood_state, nutrition_result)
 
     # --------------------------------------------------------------------- #
     # Handlers par défaut
@@ -120,19 +126,32 @@ class ServiceRegistry:
           - mood/analyze_mood
           - coaching/coach_response
           - speech/transcribe_audio
-          - knowledge/nutrition_suggestions
+          - nutrition/analyze_meal  (via agent_knowledge)
         """
         self.register("mood", "analyze_mood", self._handle_mood_analyze)
         self.register("coaching", "coach_response", self._handle_coach_response)
         self.register("speech", "transcribe_audio", self._handle_speech_transcribe)
-        self.register("knowledge", "nutrition_suggestions", self._handle_knowledge_nutrition)
+
+        # On peut adresser l'agent_knowledge de deux manières :
+        #  - service="nutrition", command="analyze_meal"
+        #  - service="knowledge", command="nutrition_suggestions"
+        self.register(
+            "nutrition",
+            "analyze_meal",
+            self._handle_knowledge_nutrition,
+        )
+        self.register(
+            "knowledge",
+            "nutrition_suggestions",
+            self._handle_knowledge_nutrition,
+        )
 
     # ------------------------ Utils de mapping mood ----------------------- #
     @staticmethod
     def _map_valence_to_mental_state(valence: Optional[str]) -> str:
         """
         Convertit la valence ('negative', 'neutral', 'positive') en
-        un état mental simplifié ('very_low', 'medium', 'high', ...).
+        un état mental simplifié ('low', 'medium', 'high').
         """
         if not valence:
             return "medium"
@@ -165,6 +184,7 @@ class ServiceRegistry:
         command: ServiceCommand,
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
+        nutrition_result: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """
         Appelle l'agent_mood et renvoie un dict mood_state normalisé :
@@ -227,29 +247,29 @@ class ServiceRegistry:
         command: ServiceCommand,
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
+        nutrition_result: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
-        """
-        Appelle l'agent_cerveau pour générer la réponse de coaching.
-
-        On lui passe :
-          - user_input = command.text
-          - mood_state = dict éventuellement issu de l'agent_mood
-          - mood = mood_state["mood_label"] si dispo
-        """
 
         payload: Dict[str, Any] = {
             "task": "coach_response",
             "user_input": command.text,
             "history": [],
-            "expert_knowledge": [],
         }
 
+        # mood
         if mood_state:
             payload["mood_state"] = mood_state
             mood_label = mood_state.get("mood_label")
             if mood_label:
                 payload["mood"] = mood_label
 
+        # 🔥 AJOUT CRUCIAL : envoyer la nutrition !
+        if nutrition_result:
+            payload["expert_knowledge"] = [nutrition_result]
+        else:
+            payload["expert_knowledge"] = []
+
+        # MCP message final
         msg: Dict[str, Any] = {
             "message_id": str(uuid.uuid4()),
             "type": "request",
@@ -264,16 +284,17 @@ class ServiceRegistry:
             payload_resp = resp.get("payload", {}) or {}
             if payload_resp.get("status") != "ok":
                 return None
-
             return payload_resp.get("answer")
         except Exception:
             return None
+
 
     async def _handle_speech_transcribe(
         self,
         command: ServiceCommand,
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
+        nutrition_result: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """
         Appelle l'agent_speech pour transcrire un fichier audio.
@@ -321,25 +342,16 @@ class ServiceRegistry:
         command: ServiceCommand,
         user_id: Optional[str],
         mood_state: Optional[Dict[str, Any]],
+        nutrition_result: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """
         Appelle l'agent_knowledge pour obtenir des suggestions nutritionnelles.
 
-        L'agent_knowledge renvoie un payload du type :
-
-          {
-            "status": "ok",
-            "task": "nutrition_suggestions",
-            "goal": "...",
-            "result": {
-              "goal": "...",
-              "sql": "...",
-              "suggestions": [...]
-            }
-          }
-
         On renvoie uniquement le champ "result" à l'orchestrateur.
         """
+
+        # 🔍 DEBUG : on log le goal envoyé à l’agent_knowledge
+        print("[ORCH] appel agent_knowledge avec goal :", command.text, flush=True)
 
         msg: Dict[str, Any] = {
             "message_id": str(uuid.uuid4()),
@@ -356,8 +368,20 @@ class ServiceRegistry:
         try:
             resp = await call_agent(AGENT_KNOWLEDGE_URL, msg)
             payload = resp.get("payload", {}) or {}
+
+            # 🔍 DEBUG : réponse brute de l’agent_knowledge
+            print(
+                "[ORCH] réponse brute agent_knowledge :",
+                payload,
+                flush=True,
+            )
+
             if payload.get("status") != "ok":
                 return None
-            return payload.get("result")
-        except Exception:
+            result = payload.get("result")
+            if result is None:
+                return None
+            return result
+        except Exception as e:
+            print("[ORCH] ERREUR appel agent_knowledge :", repr(e), flush=True)
             return None
