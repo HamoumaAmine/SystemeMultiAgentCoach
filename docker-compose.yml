@@ -74,7 +74,7 @@ services:
       - agent_knowledge
       - agent_memory
     volumes:
-      - ./services/agent_interface/uploads:/app/uploads   # 🔥 partage des images
+      - ./services/agent_interface/uploads:/app/uploads   # partage des images
     networks:
       - smartcoach_net
 
@@ -103,7 +103,9 @@ services:
       - ORCHESTRATOR_URL=http://orchestrator:8005/mcp
       - AGENT_SPEECH_URL=http://agent_speech:8006
     volumes:
-      - ./services/agent_interface/uploads:/app/uploads   # 🔥 déjà présent
+      # 🔥 On monte tout le dossier agent_interface sur /app
+      #    => users.db, meals.db, app/, uploads/ sont visibles côté Windows.
+      - ./services/agent_interface:/app
     depends_on:
       - orchestrator
       - agent_speech
@@ -121,7 +123,7 @@ services:
       - PYTHONUNBUFFERED=1
       - GROQ_API_KEY=${GROQ_API_KEY}
     volumes:
-      - ./services/agent_interface/uploads:/app/uploads   # 🔥 partage des images
+      - ./services/agent_interface/uploads:/app/uploads   # partage des images
     networks:
       - smartcoach_net
 

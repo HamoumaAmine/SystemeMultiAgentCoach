@@ -39,8 +39,16 @@ class CoachTextRequest(BaseModel):
 
 
 class CoachAnswer(BaseModel):
+    """
+    Réponse renvoyée au front pour le chat / vocal / image.
+
+    - answer : texte du coach (agent_cerveau)
+    - meal   : résumé du repas si une analyse a été faite
+    - mood   : état d'humeur renvoyé par l'orchestrateur (agent_mood)
+    """
     answer: str
     meal: Optional[Dict[str, Any]] = None
+    mood: Optional[Dict[str, Any]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +175,7 @@ async def coach_text(
 
       - answer : texte du coach (agent_cerveau)
       - meal   : éventuellement un résumé de repas si vision/nutrition ont été appelés
+      - mood   : état d'humeur analysé par agent_mood
     """
 
     user_id = user["user_id"]
@@ -186,6 +195,8 @@ async def coach_text(
     answer = payload.get("coach_answer") or "Je n’ai pas pu générer de réponse pour le moment."
 
     meal = build_meal_from_payload(payload)
+    # 🔥 Récupération du mood envoyé par l’orchestrateur
+    mood = payload.get("mood_state") or payload.get("mood_result")
 
     # ✅ Si le texte a déclenché une analyse de repas (ex: il décrit une photo déjà connue)
     if meal is not None:
@@ -201,7 +212,7 @@ async def coach_text(
             # On ne bloque pas la réponse si la persistance échoue
             pass
 
-    return CoachAnswer(answer=answer, meal=meal)
+    return CoachAnswer(answer=answer, meal=meal, mood=mood)
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +263,7 @@ async def coach_voice(
     answer = payload.get("coach_answer") or "Je n’ai pas pu générer de réponse pour ce vocal."
 
     meal = build_meal_from_payload(payload)
+    mood = payload.get("mood_state") or payload.get("mood_result")
 
     # ✅ Si le vocal a entraîné l’analyse d’un repas, on le sauvegarde aussi
     if meal is not None:
@@ -264,10 +276,10 @@ async def coach_voice(
                 image_url=meal["image_url"],
             )
         except Exception:
-        # On ne fait rien si ça plante, l’important est de répondre
+            # On ne fait rien si ça plante, l’important est de répondre
             pass
 
-    return CoachAnswer(answer=answer, meal=meal)
+    return CoachAnswer(answer=answer, meal=meal, mood=mood)
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +325,7 @@ async def coach_image(
     answer = payload.get("coach_answer") or "Je n’ai pas pu analyser ce repas."
 
     meal = build_meal_from_payload(payload)
+    mood = payload.get("mood_state") or payload.get("mood_result")
 
     # ✅ Sauvegarde dans l’historique des repas
     if meal is not None:
@@ -327,7 +340,7 @@ async def coach_image(
         except Exception:
             pass
 
-    return CoachAnswer(answer=answer, meal=meal)
+    return CoachAnswer(answer=answer, meal=meal, mood=mood)
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +383,7 @@ async def coach_photo_meal(
     answer = payload.get("coach_answer") or "Je n’ai pas pu analyser ce repas."
 
     meal = build_meal_from_payload(payload)
+    mood = payload.get("mood_state") or payload.get("mood_result")
 
     # ✅ Sauvegarde aussi via cet alias
     if meal is not None:
@@ -384,7 +398,7 @@ async def coach_photo_meal(
         except Exception:
             pass
 
-    return CoachAnswer(answer=answer, meal=meal)
+    return CoachAnswer(answer=answer, meal=meal, mood=mood)
 
 
 # ---------------------------------------------------------------------------

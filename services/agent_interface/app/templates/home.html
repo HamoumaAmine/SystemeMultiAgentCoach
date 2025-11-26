@@ -298,6 +298,48 @@ function logout(){
   window.location.href = "/ui/login";
 }
 
+/* ---------- Mood helpers ---------- */
+function summarizeMood(mood){
+  if(!mood || typeof mood !== "object"){
+    return "Humeur détectée par l’agent_mood.";
+  }
+
+  const label =
+    mood.label ||
+    mood.state ||
+    mood.overall ||
+    mood.mood ||
+    mood.mental_state ||
+    "";
+
+  const physical = mood.physical_state || mood.energy_level || "";
+  const mental = (mood.mental_state && mood.mental_state !== label) ? mood.mental_state : "";
+
+  const parts = [];
+  if(label)    parts.push(label);
+  if(physical) parts.push("énergie " + physical);
+  if(mental)   parts.push("mental " + mental);
+
+  if(parts.length === 0){
+    return "Humeur détectée par l’agent_mood.";
+  }
+  return parts.join(" · ");
+}
+
+function applyMoodToUI(mood){
+  if(!mood) return;
+  const txt = summarizeMood(mood);
+
+  // 1) Met à jour la ligne "Mood récent" dans la carte en haut
+  const moodSummaryEl = document.getElementById("moodSummary");
+  if(moodSummaryEl){
+    moodSummaryEl.innerText = txt;
+  }
+
+  // 2) Optionnel : petit message dans le chat
+  addChatMessage("coach", "🧠 Mood détecté : " + txt);
+}
+
 /* ---------- Services icons mapping ---------- */
 const ICONS = {
   coach: "🤖",
@@ -479,6 +521,11 @@ document.getElementById("sendTextBtn").addEventListener("click", async () => {
   const data = await res.json();
   addChatMessage("coach", data.answer || "Pas de réponse du coach.");
 
+  // Mood dynamique
+  if(data.mood){
+    applyMoodToUI(data.mood);
+  }
+
   // Si le backend renvoie aussi une info repas (ex : depuis vision)
   if(data.meal){
     updateMealCard(data.meal);
@@ -520,6 +567,10 @@ async function sendMealImage(file){
     addChatMessage("coach", "L’image a été reçue mais je n’ai pas pu analyser ce repas.");
   }
 
+  if(data.mood){
+    applyMoodToUI(data.mood);
+  }
+  
   if(data.meal){
     updateMealCard(data.meal);
   }
@@ -586,6 +637,10 @@ async function toggleRecording(){
         const data = await res.json();
         addChatMessage("coach", data.answer || "Pas de réponse du coach.");
         voiceStatus.innerText = "Micro : inactif";
+
+        if(data.mood){
+          applyMoodToUI(data.mood);
+        }
 
         // Si une analyse de repas est aussi renvoyée
         if(data.meal){
