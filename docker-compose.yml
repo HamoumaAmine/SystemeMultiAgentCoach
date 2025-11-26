@@ -1,4 +1,3 @@
-
 services:
   agent_memory:
     build:
@@ -9,8 +8,6 @@ services:
       - "8003:8003"
     environment:
       - PYTHONUNBUFFERED=1
-    volumes:
-      - ./services/agent_memory/app/agent_memory.db:/app/agent_memory.db
     networks:
       - smartcoach_net
 
@@ -23,7 +20,6 @@ services:
       - "8001:8001"
     environment:
       - PYTHONUNBUFFERED=1
-      # Si ton agent_mood utilise GROQ :
       - GROQ_API_KEY=${GROQ_API_KEY}
     networks:
       - smartcoach_net
@@ -38,7 +34,6 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - GROQ_API_KEY=${GROQ_API_KEY}
-      # Pour que MemoryClient parle à agent_memory dans le réseau Docker
       - AGENT_MEMORY_URL=http://agent_memory:8003
     depends_on:
       - agent_memory
@@ -61,21 +56,23 @@ services:
   orchestrator:
     build:
       context: ./services/orchestrator
-    #  si ton Dockerfile n'est pas à la racine de ce dossier, adapte dockerfile:
-    #  dockerfile: Dockerfile
     container_name: orchestrator
     ports:
       - "8005:8005"
     environment:
       - PYTHONUNBUFFERED=1
-      # URLs des autres agents dans le réseau Docker
       - AGENT_MANAGER_URL=http://agent_manager:8004/mcp
       - AGENT_MOOD_URL=http://agent_mood:8001/mcp
       - AGENT_CERVEAU_URL=http://agent_cerveau:8002/mcp
+      - AGENT_VISION_URL=http://agent_vision:8008/mcp
+      - AGENT_KNOWLEDGE_URL=http://agent_knowledge:8007/mcp
     depends_on:
       - agent_manager
       - agent_mood
       - agent_cerveau
+      - agent_vision
+      - agent_knowledge
+      - agent_memory
     networks:
       - smartcoach_net
 
@@ -92,18 +89,50 @@ services:
     networks:
       - smartcoach_net
 
+  agent_interface:
+    build:
+      context: ./services/agent_interface
+      dockerfile: Dockerfile
+    container_name: agent_interface
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ORCHESTRATOR_URL=http://orchestrator:8005/mcp
+      - AGENT_SPEECH_URL=http://agent_speech:8006
+    volumes:
+      - ./services/agent_interface/uploads:/app/uploads
+    depends_on:
+      - orchestrator
+      - agent_speech
+    networks:
+      - smartcoach_net
 
-  # Tu pourras ajouter plus tard :
-  # agent_speech:
-  #   build:
-  #     context: ./services/agent_speech
-  #   container_name: agent_speech
-  #   ports:
-  #     - "8006:8006"
-  #   environment:
-  #     - PYTHONUNBUFFERED=1
-  #   networks:
-  #     - smartcoach_net
+  agent_vision:
+    build:
+      context: ./services/agent_vision
+      dockerfile: Dockerfile
+    container_name: agent_vision
+    ports:
+      - "8008:8008"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    networks:
+      - smartcoach_net
+
+  agent_knowledge:
+    build:
+      context: ./services/agent_knowledge
+      dockerfile: Dockerfile
+    container_name: agent_knowledge
+    ports:
+      - "8007:8007"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    networks:
+      - smartcoach_net
 
 networks:
   smartcoach_net:

@@ -8,14 +8,37 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 
 
-# === Chargement du fichier .env ===
+# === Chargement du fichier .env de manière robuste ===
 #
-# Ce fichier client.py est dans :
-#   .../SystemeMultiAgentCoach/services/agent_manager/app/llm/client.py
-# On remonte jusqu'à la racine du projet pour trouver .env
-BASE_DIR = Path(__file__).resolve().parents[4]  # -> SystemeMultiAgentCoach
+# Avant : BASE_DIR = Path(__file__).resolve().parents[4] -> IndexError en Docker.
+# Maintenant :
+#   1. On remonte les parents du fichier jusqu'à trouver un ".env".
+#   2. Si on ne trouve rien, on prend un fallback raisonnable (parents[2] => /app).
+#
+
+CURRENT_FILE = Path(__file__).resolve()
+
+base_dir_candidate: Path | None = None
+for parent in CURRENT_FILE.parents:
+    if (parent / ".env").exists():
+        base_dir_candidate = parent
+        break
+
+if base_dir_candidate is None:
+    parents = CURRENT_FILE.parents
+    if len(parents) >= 3:
+        base_dir_candidate = parents[2]  # typiquement /app dans le conteneur
+    else:
+        base_dir_candidate = parents[0]
+
+BASE_DIR = base_dir_candidate
 dotenv_path = BASE_DIR / ".env"
+
+# Charge le .env s'il existe, mais ne plante pas s'il n'existe pas :
 load_dotenv(dotenv_path=dotenv_path)
+
+print(f"[agent_manager] BASE_DIR = {BASE_DIR}")
+print(f"[agent_manager] .env = {dotenv_path} (exists={dotenv_path.exists()})")
 
 
 class LLMClient:
@@ -34,7 +57,7 @@ class LLMClient:
         if not api_key:
             raise RuntimeError(
                 "La variable d'environnement GROQ_API_KEY n'est pas définie. "
-                "Vérifie ton fichier .env à la racine du projet."
+                "Vérifie ton fichier .env à la racine du projet ou la config Docker."
             )
 
         self.llm = ChatGroq(

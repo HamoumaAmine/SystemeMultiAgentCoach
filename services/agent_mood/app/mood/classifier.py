@@ -10,13 +10,40 @@ from groq import Groq
 from .utils import normalize_text
 
 
-# === Chargement du .env à la racine du projet ===============================
+# === Chargement du .env de manière robuste ===============================
+#
+# Avant : PROJECT_ROOT = Path(__file__).resolve().parents[5]  -> IndexError en Docker.
+# Maintenant :
+#   1. On remonte les parents du fichier jusqu'à trouver un ".env".
+#   2. Si on ne trouve rien, on prend un fallback raisonnable (parents[2] => /app).
+#
 
-# Ce fichier est dans : services/agent_mood/app/mood/classifier.py
-# On remonte jusqu'à la racine "SystemeMultiAgentCoach" pour trouver .env
-PROJECT_ROOT = Path(__file__).resolve().parents[5]
+CURRENT_FILE = Path(__file__).resolve()
+
+project_root_candidate: Optional[Path] = None
+for parent in CURRENT_FILE.parents:
+    if (parent / ".env").exists():
+        project_root_candidate = parent
+        break
+
+if project_root_candidate is None:
+    # Fallback : on suppose que le code est dans /app/app/...  -> racine = parents[2] (= /app)
+    # On évite surtout d'accéder à un parents[5] inexistant.
+    # On protège aussi si jamais il y a moins de 3 parents.
+    parents = CURRENT_FILE.parents
+    if len(parents) >= 3:
+        project_root_candidate = parents[2]
+    else:
+        # Ultime fallback : le dossier du fichier
+        project_root_candidate = parents[0]
+
+PROJECT_ROOT = project_root_candidate
 ENV_PATH = PROJECT_ROOT / ".env"
-load_dotenv(ENV_PATH, override=True)
+
+# On charge le .env s'il existe, sinon ce n'est pas grave :
+# les variables d'environnement peuvent venir de Docker (docker-compose).
+if ENV_PATH.exists():
+    load_dotenv(ENV_PATH, override=True)
 
 print(f"[agent_mood] PROJECT_ROOT = {PROJECT_ROOT}")
 print(f"[agent_mood] .env = {ENV_PATH} (exists={ENV_PATH.exists()})")

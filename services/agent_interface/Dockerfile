@@ -1,18 +1,44 @@
-FROM python:3.10-slim
+# ============================================
+# 1. Base Python légère
+# ============================================
+FROM python:3.12-slim
 
-ENV PYTHONUNBUFFERED=1
-
+# ============================================
+# 2. Répertoire de travail
+# ============================================
 WORKDIR /app
 
-# Installer les dépendances
-COPY requirements.txt .
+# ============================================
+# 3. Installation des dépendances système
+# (indispensable pour certaines libs Python)
+# ============================================
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    && apt-get clean
+
+# ============================================
+# 4. Installation des dépendances Python
+# ============================================
+COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copier le code de l'agent interface
-COPY app ./app
+# ============================================
+# 5. Copier tout le code de l’agent_interface
+# ============================================
+COPY . /app
 
-# Port exposé par le service
+# ============================================
+# 6. Créer le répertoire d’uploads
+# ============================================
+RUN mkdir -p /app/uploads
+
+# ============================================
+# 7. Exposer le port FastAPI
+# ============================================
 EXPOSE 8000
 
-# Lancer l'application FastAPI
+# ============================================
+# 8. Commande de lancement Uvicorn
+# ============================================
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

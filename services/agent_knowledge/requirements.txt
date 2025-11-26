@@ -2,3 +2,9 @@ fastapi
 uvicorn[standard]
 python-dotenv
 groq
+pydantic
+pydantic[email]
+jinja2
+python-multipart
+requests
+httpx
