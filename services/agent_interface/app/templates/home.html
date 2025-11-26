@@ -1,4 +1,4 @@
-<!-- services/agent_interface/app/templates/home.html -->
+<!-- services/agent_interface/app/templates/home.html --> 
 <!doctype html>
 <html lang="fr">
 <head>
@@ -190,7 +190,7 @@
       <div class="glass rounded-3xl shadow-lg p-5">
         <div class="flex items-center justify-between">
           <h3 class="font-bold text-base">Dernier repas scanné</h3>
-          <span class="text-xs bg-blue-600 text-white px-2 py-1 rounded-full">Aujourd’hui</span>
+          <span id="mealDateBadge" class="text-xs bg-blue-600 text-white px-2 py-1 rounded-full">Aujourd’hui</span>
         </div>
 
         <div class="mt-4 flex gap-4">
@@ -200,18 +200,19 @@
           </div>
 
           <div class="flex-1 text-sm space-y-1">
-            <div class="font-semibold" id="mealTitle">Poulet + riz + légumes</div>
-            <div class="text-slate-700" id="mealDesc">Repas équilibré riche en protéines.</div>
+            <div class="font-semibold" id="mealTitle">Aucun repas scanné pour l’instant</div>
+            <div class="text-slate-700" id="mealDesc">Scanne un repas pour voir l’analyse ici.</div>
 
             <div class="flex flex-wrap gap-2 mt-2">
-              <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full">520 kcal</span>
-              <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">P: 42g</span>
-              <span class="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded-full">G: 55g</span>
-              <span class="text-xs bg-pink-100 text-pink-800 px-2 py-1 rounded-full">L: 14g</span>
+              <span id="mealKcal" class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full hidden">-</span>
+              <span id="mealProt" class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full hidden">-</span>
+              <span id="mealCarb" class="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded-full hidden">-</span>
+              <span id="mealFat" class="text-xs bg-pink-100 text-pink-800 px-2 py-1 rounded-full hidden">-</span>
             </div>
 
-            <button class="mt-3 w-full bg-white rounded-xl py-2 shadow hover:shadow-md transition">
-              Re-scanner un repas
+            <button id="rescanMealBtn"
+                    class="mt-3 w-full bg-white rounded-xl py-2 shadow hover:shadow-md transition">
+              📸 Scanner un repas
             </button>
           </div>
         </div>
@@ -219,10 +220,10 @@
 
     </div>
 
-    <!-- COACH CHAT (texte + vocal) -->
+    <!-- COACH CHAT (texte + vocal + photo) -->
     <div class="glass rounded-3xl shadow-lg p-5 mt-6 fade-up" style="animation-delay:.22s">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="font-bold text-base">Coach IA – Chat & Vocal</h3>
+        <h3 class="font-bold text-base">Coach IA – Chat, Vocal & Photo repas</h3>
         <span id="voiceStatus" class="text-xs text-slate-600">Micro : inactif</span>
       </div>
 
@@ -240,6 +241,11 @@
           <button id="sendTextBtn"
                   class="flex-1 bg-black text-white rounded-2xl py-2 text-sm hover:bg-slate-800 transition">
             Envoyer au coach
+          </button>
+
+          <button id="photoBtn"
+                  class="flex-1 bg-indigo-600 text-white rounded-2xl py-2 text-sm hover:bg-indigo-700 transition">
+            📸 Envoyer une photo
           </button>
 
           <button id="voiceBtn"
@@ -277,6 +283,13 @@
     </div>
   </div>
 
+  <!-- INPUT CACHÉ POUR UPLOAD / PHOTO REPAS -->
+  <input id="mealImageInput"
+         type="file"
+         accept="image/*"
+         capture="environment"
+         class="hidden" />
+
 <script>
 /* ---------- Helpers ---------- */
 function getToken(){ return localStorage.getItem("token"); }
@@ -295,6 +308,55 @@ const ICONS = {
   stats: "📈"
 };
 
+/* ---------- Références carte repas ---------- */
+const mealImg      = document.getElementById("mealImg");
+const mealTitleEl  = document.getElementById("mealTitle");
+const mealDescEl   = document.getElementById("mealDesc");
+const mealKcalEl   = document.getElementById("mealKcal");
+const mealProtEl   = document.getElementById("mealProt");
+const mealCarbEl   = document.getElementById("mealCarb");
+const mealFatEl    = document.getElementById("mealFat");
+const mealDateBadge = document.getElementById("mealDateBadge");
+const mealImageInput = document.getElementById("mealImageInput");
+
+/* ---------- Mise à jour de la carte 'Dernier repas scanné' ---------- */
+function updateMealCard(meal){
+  if(!meal) return;
+
+  // Titre + description
+  if(meal.title){
+    mealTitleEl.textContent = meal.title;
+  }
+  if(meal.description){
+    mealDescEl.textContent = meal.description;
+  }
+
+  // Image (si backend renvoie une URL)
+  if(meal.image_url){
+    mealImg.src = meal.image_url;
+  }
+
+  // Date (optionnelle)
+  if(meal.scanned_at){
+    mealDateBadge.textContent = meal.scanned_at;
+  }
+
+  // Macros / calories
+  function showBadge(el, value, suffix){
+    if(value === null || value === undefined || value === ""){
+      el.classList.add("hidden");
+    } else {
+      el.textContent = value + suffix;
+      el.classList.remove("hidden");
+    }
+  }
+
+  showBadge(mealKcalEl, meal.kcal, " kcal");
+  showBadge(mealProtEl, meal.proteins_g, " g P");
+  showBadge(mealCarbEl, meal.carbs_g, " g G");
+  showBadge(mealFatEl,  meal.fats_g, " g L");
+}
+
 /* ---------- Load dashboard ---------- */
 async function loadDashboard(){
   const token = getToken();
@@ -308,6 +370,11 @@ async function loadDashboard(){
   document.getElementById("goalSummary").innerText = d.goal_summary;
   document.getElementById("moodSummary").innerText = d.mood_summary;
   document.getElementById("progressSummary").innerText = d.progress_summary;
+
+  // Si le backend renvoie le dernier repas scanné
+  if(d.last_meal){
+    updateMealCard(d.last_meal);
+  }
 
   // Services cards
   const container = document.getElementById("services");
@@ -385,7 +452,7 @@ function addChatMessage(role, text){
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-/* ---------- Text message ---------- */
+/* ---------- Envoi texte ---------- */
 document.getElementById("sendTextBtn").addEventListener("click", async () => {
   const token = getToken();
   if(!token){ logout(); return; }
@@ -411,6 +478,69 @@ document.getElementById("sendTextBtn").addEventListener("click", async () => {
   }
   const data = await res.json();
   addChatMessage("coach", data.answer || "Pas de réponse du coach.");
+
+  // Si le backend renvoie aussi une info repas (ex : depuis vision)
+  if(data.meal){
+    updateMealCard(data.meal);
+  }
+});
+
+/* ---------- Envoi image / repas ---------- */
+async function sendMealImage(file){
+  const token = getToken();
+  if(!token){ logout(); return; }
+  if(!file) return;
+
+  addChatMessage("user", "📸 J’ai envoyé une photo de mon repas, peux-tu l’analyser ?");
+
+  const formData = new FormData();
+  formData.append("file", file, file.name || "meal.jpg");
+
+  // 🔗 Endpoint à implémenter côté backend :
+  // - reçoit l’image
+  // - appelle orchestrator / agent_vision / agent_knowledge
+  // - renvoie : { answer: "...", meal: { title, description, image_url, kcal, proteins_g, carbs_g, fats_g, scanned_at } }
+  const res = await fetch("/coach/photo-meal", {
+    method: "POST",
+    headers: {
+      "Authorization":"Bearer " + token
+    },
+    body: formData
+  });
+
+  if(!res.ok){
+    addChatMessage("coach", "Erreur lors de l’analyse de l’image de ton repas.");
+    return;
+  }
+
+  const data = await res.json();
+  if(data.answer){
+    addChatMessage("coach", data.answer);
+  } else {
+    addChatMessage("coach", "L’image a été reçue mais je n’ai pas pu analyser ce repas.");
+  }
+
+  if(data.meal){
+    updateMealCard(data.meal);
+  }
+}
+
+function handleMealImageChange(e){
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  sendMealImage(file);
+  // reset pour pouvoir re-sélectionner la même image si besoin
+  e.target.value = "";
+}
+
+mealImageInput.addEventListener("change", handleMealImageChange);
+
+document.getElementById("photoBtn").addEventListener("click", () => {
+  mealImageInput.click();
+});
+
+document.getElementById("rescanMealBtn").addEventListener("click", () => {
+  mealImageInput.click();
 });
 
 /* ---------- Voice recording ---------- */
@@ -456,6 +586,11 @@ async function toggleRecording(){
         const data = await res.json();
         addChatMessage("coach", data.answer || "Pas de réponse du coach.");
         voiceStatus.innerText = "Micro : inactif";
+
+        // Si une analyse de repas est aussi renvoyée
+        if(data.meal){
+          updateMealCard(data.meal);
+        }
       };
 
       mediaRecorder.start();

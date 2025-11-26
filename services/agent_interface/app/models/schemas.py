@@ -4,7 +4,9 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 
-# --------- MCP / Coach --------- #
+# ---------------------------------------------------------------------------
+# 1) Messages du coach / réponse orchestrateur
+# ---------------------------------------------------------------------------
 
 class UserMessage(BaseModel):
     text: str
@@ -14,7 +16,9 @@ class CoachResponse(BaseModel):
     answer: str
 
 
-# --------- Auth --------- #
+# ---------------------------------------------------------------------------
+# 2) Authentification : signup / login
+# ---------------------------------------------------------------------------
 
 class SignupRequest(BaseModel):
     firstname: str
@@ -33,7 +37,9 @@ class AuthResponse(BaseModel):
     token: str
 
 
-# --------- Profil / onboarding --------- #
+# ---------------------------------------------------------------------------
+# 3) Profil utilisateur
+# ---------------------------------------------------------------------------
 
 class ProfileUpdate(BaseModel):
     age: Optional[int] = None
@@ -48,7 +54,30 @@ class ProfileResponse(BaseModel):
     profile: ProfileUpdate
 
 
-# --------- Dashboard --------- #
+# ---------------------------------------------------------------------------
+# 4) Meals / Nutrition (NOUVEAU)
+# ---------------------------------------------------------------------------
+
+class MealCard(BaseModel):
+    """
+    Représente un repas scanné par l’utilisateur.
+    Utilisé à la fois dans :
+      - /dashboard  (last_meal)
+      - endpoints historiques futurs
+    """
+    title: str
+    description: str
+    image_url: Optional[str]
+    kcal: Optional[float]
+    proteins_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fats_g: Optional[float] = None
+    scanned_at: str
+
+
+# ---------------------------------------------------------------------------
+# 5) Dashboard : services + dernier repas scanné
+# ---------------------------------------------------------------------------
 
 class ServiceCard(BaseModel):
     key: str
@@ -64,3 +93,15 @@ class DashboardResponse(BaseModel):
     mood_summary: str
     progress_summary: str
     services: List[ServiceCard]
+
+    # Ajout essentiel pour afficher le dernier repas scanné
+    last_meal: Optional[MealCard] = None
+
+
+# ---------------------------------------------------------------------------
+# 6) CoachAnswer — modèle utilisé par coach.py
+# ---------------------------------------------------------------------------
+
+class CoachAnswer(BaseModel):
+    answer: str
+    meal: Optional[dict] = None
