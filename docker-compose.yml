@@ -8,6 +8,8 @@ services:
       - "8003:8003"
     environment:
       - PYTHONUNBUFFERED=1
+    volumes:
+      - ./services/agent_memory:/app
     networks:
       - smartcoach_net
 

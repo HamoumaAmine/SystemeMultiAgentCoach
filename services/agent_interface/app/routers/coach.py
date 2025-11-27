@@ -27,6 +27,7 @@ from app.clients.orchestrator_client import (
 from app.core.store import get_user_by_id, get_user_id_from_token
 from app.core.meals_store import save_meal, get_recent_meals  # ✅ historique des repas
 from app.core.mood_store import save_mood
+from app.core.store import save_next_training
 
 router = APIRouter(prefix="/coach", tags=["coach"])
 
@@ -237,12 +238,23 @@ async def coach_text(
     """
 
     user_id = user["user_id"]
+    # Contexte profil (pour plus tard si on veut le passer au LLM)
+    user_profile = {
+        "age": user.get("age"),
+        "height_cm": user.get("height_cm"),
+        "weight_kg": user.get("weight_kg"),
+        "goal": user.get("goal"),
+        "sessions_per_week": user.get("sessions_per_week"),
+    }
 
     try:
+        # 🔧 Pour l’instant on ne passe PAS user_profile
         orch_resp = await call_orchestrator(
             user_input=req.text,
             user_id=user_id,
+            # user_profile=user_profile,
         )
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -251,6 +263,13 @@ async def coach_text(
 
     payload = orch_resp.get("payload", {}) or {}
     answer = payload.get("coach_answer") or "Je n’ai pas pu générer de réponse pour le moment."
+    # 👈 Sauvegarde auto de la prochaine séance si détectée
+    try:
+        if answer and isinstance(answer, str):
+            if "minute" in answer.lower() or "séance" in answer.lower() or "marche" in answer.lower():
+                save_next_training(user_id, answer)
+    except Exception:
+        pass
 
     meal = build_meal_from_payload(payload)
     # 🔥 Récupération du mood envoyé par l’orchestrateur
@@ -327,6 +346,14 @@ async def coach_voice(
     """
 
     user_id = user["user_id"]
+    # Contexte utilisateur (non utilisé pour l’instant dans l’appel)
+    user_profile = {
+        "age": user.get("age"),
+        "height_cm": user.get("height_cm"),
+        "weight_kg": user.get("weight_kg"),
+        "goal": user.get("goal"),
+        "sessions_per_week": user.get("sessions_per_week"),
+    }
 
     ext = os.path.splitext(file.filename or "")[1] or ".webm"
     tmp_name = f"voice_{uuid.uuid4().hex}{ext}"
@@ -341,6 +368,7 @@ async def coach_voice(
             user_input="",
             user_id=user_id,
             audio_path=str(tmp_path),
+            # user_profile=user_profile,
         )
     finally:
         # Pour l’instant on garde le fichier pour debug.
@@ -349,6 +377,13 @@ async def coach_voice(
 
     payload = orch_resp.get("payload", {}) or {}
     answer = payload.get("coach_answer")
+    # 👈 Sauvegarde auto séance détectée (vocal)
+    try:
+        if answer and isinstance(answer, str):
+            if "minute" in answer.lower() or "séance" in answer.lower() or "marche" in answer.lower():
+                save_next_training(user_id, answer)
+    except Exception:
+        pass
 
     meal = build_meal_from_payload(payload)
     mood = payload.get("mood_state") or payload.get("mood_result")
@@ -383,6 +418,7 @@ async def coach_voice(
             orch_resp2 = await call_orchestrator(
                 user_input=transcription_text,
                 user_id=user_id,
+                # user_profile=user_profile,
             )
             payload2 = orch_resp2.get("payload", {}) or {}
             answer = payload2.get("coach_answer") or answer
@@ -447,6 +483,14 @@ async def coach_image(
     """
 
     user_id = user["user_id"]
+    # Profil complet (non transmis pour l’instant)
+    user_profile = {
+        "age": user.get("age"),
+        "height_cm": user.get("height_cm"),
+        "weight_kg": user.get("weight_kg"),
+        "goal": user.get("goal"),
+        "sessions_per_week": user.get("sessions_per_week"),
+    }
 
     ext = os.path.splitext(file.filename or "")[1] or ".jpg"
     tmp_name = f"meal_{uuid.uuid4().hex}{ext}"
@@ -460,6 +504,7 @@ async def coach_image(
             user_input="Analyse mon repas sur la photo",
             user_id=user_id,
             image_path=str(tmp_path),
+            # user_profile=user_profile,
         )
     finally:
         # idem : on garde le fichier pour investiguer si besoin
@@ -472,6 +517,13 @@ async def coach_image(
     payload = orch_resp.get("payload", {}) or {}
     payload["image_url"] = image_url
     answer = payload.get("coach_answer") or "Je n’ai pas pu analyser ce repas."
+    # 👈 Sauvegarde auto séance détectée (après analyse image)
+    try:
+        if answer and isinstance(answer, str):
+            if "minute" in answer.lower() or "séance" in answer.lower() or "marche" in answer.lower():
+                save_next_training(user_id, answer)
+    except Exception:
+        pass
 
     meal = build_meal_from_payload(payload)
     mood = payload.get("mood_state") or payload.get("mood_result")
@@ -597,7 +649,7 @@ async def coach_photo_meal(
     except Exception:
         pass
 
-    return CoachAnswer(answer=answer, meal=meal, mood=mood, transcription=transcription)
+    return CoachAnswer(answer=answer, meal=meal, transcription=transcription, mood=mood)
 
 
 # ---------------------------------------------------------------------------

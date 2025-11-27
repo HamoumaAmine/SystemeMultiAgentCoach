@@ -1,4 +1,5 @@
 import uuid
+import json
 import sqlite3
 from pathlib import Path
 from datetime import datetime
@@ -341,3 +342,41 @@ def save_profile(user_id: str, update: Dict[str, Any]) -> Dict[str, Any]:
 
     # On renvoie le profil complet après mise à jour
     return load_profile(user_id)
+
+# ---------------------------------------------------------------------
+# Sauvegarde et récupération de la prochaine séance recommandée
+# ---------------------------------------------------------------------
+
+NEXT_TRAINING_FILE = Path("data/next_training.json")
+NEXT_TRAINING_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+def save_next_training(user_id: str, training: str):
+    """
+    Sauvegarde la prochaine séance recommandée dans un petit fichier JSON.
+    Structure :
+    {
+        "user_id1": "séance recommandée...",
+        "user_id2": "..."
+    }
+    """
+    data = {}
+    if NEXT_TRAINING_FILE.exists():
+        try:
+            data = json.loads(NEXT_TRAINING_FILE.read_text())
+        except json.JSONDecodeError:
+            data = {}
+
+    data[user_id] = training
+    NEXT_TRAINING_FILE.write_text(json.dumps(data, indent=2))
+
+
+def load_next_training(user_id: str) -> Optional[str]:
+    """Récupère la prochaine séance recommandée pour afficher dans le dashboard."""
+    if not NEXT_TRAINING_FILE.exists():
+        return None
+
+    try:
+        data = json.loads(NEXT_TRAINING_FILE.read_text())
+        return data.get(user_id)
+    except Exception:
+        return None

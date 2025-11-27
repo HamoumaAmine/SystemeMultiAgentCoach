@@ -1,3 +1,5 @@
+# services/agent_interface/app/routers/dashboard.py
+
 from fastapi import APIRouter, Header, HTTPException
 
 from app.models.schemas import (
@@ -10,23 +12,15 @@ from app.core.store import (
     get_user_by_id,
     load_profile,
 )
-
 from app.core.meals_store import get_last_meal, get_recent_meals
 from app.core.mood_store import get_last_mood
+from app.core.store import load_next_training
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 @router.get("/", response_model=DashboardResponse)
 def get_dashboard(authorization: str = Header(...)):
-    """
-    Données agrégées pour la homepage / dashboard :
-      - message de bienvenue
-      - résumé de l'objectif
-      - résumé mood / progression
-      - services proposés (tuiles)
-      - dernier repas scanné
-    """
     token = authorization.replace("Bearer ", "")
     user_id = get_user_id_from_token(token)
     if not user_id:
@@ -50,11 +44,33 @@ def get_dashboard(authorization: str = Header(...)):
             "Va dans la section \"Mon profil\" pour en fixer un."
         )
 
-    # Mood : pour l'instant, texte générique (sera remplacé par le dernier mood)
-    mood_summary = (
-        "Ton état d'humeur sera bientôt affiché ici grâce à l’agent d’humeur. "
-        "Continue à discuter avec le coach pour enrichir ton historique."
-    )
+    # Mood
+    mood_raw = get_last_mood(user_id)
+    mood_summary = "Aucune analyse d'humeur pour le moment."
+    mood_details = {
+        "energy_value": 0,
+        "mental_value": 0,
+        "label": None,
+    }
+
+    if mood_raw:
+        parts = []
+
+        if mood_raw.get("label"):
+            parts.append(f"Humeur : {mood_raw.get('label')}")
+            mood_details["label"] = mood_raw["label"]
+
+        if mood_raw.get("energy_level_value"):
+            ev = mood_raw["energy_level_value"]
+            mood_details["energy_value"] = ev
+            parts.append(f"Énergie : {ev}%")
+
+        if mood_raw.get("mental_state_value"):
+            mv = mood_raw["mental_state_value"]
+            mood_details["mental_value"] = mv
+            parts.append(f"Mental : {mv}%")
+
+        mood_summary = " · ".join(parts) if parts else "Humeur analysée."
 
     sessions_per_week = profile.get("sessions_per_week") if profile else None
     if sessions_per_week:
@@ -69,14 +85,13 @@ def get_dashboard(authorization: str = Header(...)):
         )
 
     # ------------------------------------------------------------------
-    # 2) Cartes de services (tuiles du milieu)
+    # 2) Cartes de services
     # ------------------------------------------------------------------
     services = [
         ServiceCard(
             key="profile",
             title="Mon profil",
             subtitle="Âge, poids, objectif, fréquence…",
-            # Renvoie vers la section profil de la home
             route="#profile-section",
         ),
         ServiceCard(
@@ -112,7 +127,7 @@ def get_dashboard(authorization: str = Header(...)):
     ]
 
     # ------------------------------------------------------------------
-    # 3) Dernier repas scanné (meals.db)
+    # 3) Dernier repas scanné
     # ------------------------------------------------------------------
     last_meal_raw = get_last_meal(user_id)
     last_meal_card = None
@@ -129,9 +144,7 @@ def get_dashboard(authorization: str = Header(...)):
     # ------------------------------------------------------------------
     # 4) Équilibre nutritionnel dynamique
     # ------------------------------------------------------------------
-
     meals = get_recent_meals(user_id, limit=3)
-
     nutri_score = 50  # par défaut
 
     if meals:
@@ -141,36 +154,30 @@ def get_dashboard(authorization: str = Header(...)):
         total_fat = 0
 
         for m in meals:
-            # kcal toujours disponible
-            kcal = m.get("kcal")
             try:
-                total_kcal += float(kcal)
-            except:
+                if m.get("kcal") is not None:
+                    total_kcal += float(m["kcal"])
+            except Exception:
                 pass
 
-            # protéines
-            prot = m.get("proteins_g")
             try:
-                total_prot += float(prot)
-            except:
+                if m.get("proteins_g") is not None:
+                    total_prot += float(m["proteins_g"])
+            except Exception:
                 pass
 
-            # glucides
-            carb = m.get("carbs_g")
             try:
-                total_carb += float(carb)
-            except:
+                if m.get("carbs_g") is not None:
+                    total_carb += float(m["carbs_g"])
+            except Exception:
                 pass
 
-            # lipides
-            fat = m.get("fats_g")
             try:
-                total_fat += float(fat)
-            except:
+                if m.get("fats_g") is not None:
+                    total_fat += float(m["fats_g"])
+            except Exception:
                 pass
 
-
-        # ratios simplifiés
         cal_from_prot = total_prot * 4
         cal_from_carb = total_carb * 4
         cal_from_fat = total_fat * 9
@@ -179,102 +186,84 @@ def get_dashboard(authorization: str = Header(...)):
         pct_carb = cal_from_carb / total_kcal if total_kcal else 0
         pct_fat = cal_from_fat / total_kcal if total_kcal else 0
 
-        # profil influence les ratios idéaux
-        goal = (profile.get("goal") or "").lower() if profile else ""
+        goal_str = (profile.get("goal") or "").lower() if profile else ""
 
-        if "perte" in goal:
+        if "perte" in goal_str:
             ideal = {"prot": 0.35, "carb": 0.35, "fat": 0.30}
-        elif "muscle" in goal:
+        elif "masse" in goal_str or "muscle" in goal_str:
             ideal = {"prot": 0.40, "carb": 0.30, "fat": 0.30}
         else:
             ideal = {"prot": 0.30, "carb": 0.45, "fat": 0.25}
 
-        # scoring simple : écart moyen
         score = (
             abs(pct_prot - ideal["prot"]) +
             abs(pct_carb - ideal["carb"]) +
             abs(pct_fat - ideal["fat"])
         )
 
-        # Score inversé
         nutri_score = max(5, int((1 - score) * 100))
 
-
     # ------------------------------------------------------------------
-    # 4) Génération dynamique de la prochaine séance
+    # 5) Prochaine séance (basée sur ce que le coach a recommandé)
     # ------------------------------------------------------------------
-    goal = profile.get("goal", "fit") if profile else "fit"
-    age = profile.get("age", 25) if profile else 25
-    sessions = profile.get("sessions_per_week", 2) if profile else 2
+    next_training_dynamic = load_next_training(user_id)
 
-    # Intensité de base selon objectif
-    if goal in ["fit", "bien-être"]:
-        intensity = "modérée"
-    elif goal in ["perte_de_poids"]:
-        intensity = "haute"
-    elif goal in ["muscle"]:
-        intensity = "élevée"
+    # Nettoyage du texte brut du coach
+    def clean_training_text(text: str) -> str:
+        """Extrait seulement les phrases utiles pour la séance."""
+        import re
+        if not text:
+            return ""
+
+        # On enlève les titres Markdown (**Ce que je comprends..., etc.)
+        text = re.sub(r"\*\*.*?\*\*", "", text)
+
+        # On garde uniquement les phrases contenant des mots liés au sport
+        keywords = ["minute", "marche", "échauffement", "séance", "exercice", "étirement"]
+        lines = text.splitlines()
+
+        selected = []
+        for l in lines:
+            if any(k in l.lower() for k in keywords):
+                selected.append(l.strip("-•* ").strip())
+
+        if selected:
+            return " ".join(selected)
+
+        # fallback : 1–2 phrases maximum
+        sentences = re.split(r"[.!?]", text)
+        return ". ".join(sentences[:2]).strip()
+
+
+    # ---------------------------
+    # Nouvelle génération séance
+    # ---------------------------
+    if next_training_dynamic:
+        cleaned = clean_training_text(next_training_dynamic)
+
+        next_training = {
+            "title": "Séance recommandée",
+            "description": cleaned if cleaned else "Une séance est disponible."
+        }
     else:
-        intensity = "modérée"
+        next_training = {
+            "title": "Aucune séance recommandée",
+            "description": (
+                "Discute avec le coach pour recevoir une séance adaptée "
+                "à ton humeur et ton objectif."
+            )
+        }
 
-    # Ajustement selon âge
-    if age > 45 and intensity == "élevée":
-        intensity = "modérée"
 
-    # Durée selon intensité
-    duration_map = {
-        "douce": 25,
-        "modérée": 35,
-        "haute": 40,
-        "élevée": 45,
-    }
-    duration = duration_map.get(intensity, 30)
-
-    # Exercices recommandés
-    if intensity == "douce":
-        exercises = [
-            {"name": "Marche active", "series": "10 min"},
-            {"name": "Étirements", "series": "5 min"},
-            {"name": "Respiration profonde", "series": "5 min"},
-        ]
-    elif intensity == "modérée":
-        exercises = [
-            {"name": "Squats", "series": "3×12"},
-            {"name": "Pompes", "series": "3×10"},
-            {"name": "Gainage", "series": "3×30s"},
-        ]
-    elif intensity in ["haute", "élevée"]:
-        exercises = [
-            {"name": "Burpees", "series": "3×10"},
-            {"name": "Squats sautés", "series": "4×12"},
-            {"name": "Mountain climbers", "series": "3×45s"},
-        ]
-
-    next_training = {
-        "title": f"Séance {intensity}",
-        "duration": duration,
-        "intensity": intensity,
-        "exercises": exercises,
-    }
-
-    mood_data = get_last_mood(user_id)
-
-    if mood_data:
-        summary_parts = []
-        if mood_data.get("label"):
-            summary_parts.append(f"Humeur {mood_data['label']}")
-        if mood_data.get("energy_level"):
-            summary_parts.append(f"Énergie {mood_data['energy_level']}")
-        if mood_data.get("mental_state"):
-            summary_parts.append(f"Mental {mood_data['mental_state']}")
-
-        mood_summary = " · ".join(summary_parts) if summary_parts else "Humeur détectée."
-
+    # ------------------------------------------------------------------
+    # Retour
+    # ------------------------------------------------------------------
     return DashboardResponse(
         user_id=user_id,
         greeting=greeting,
         goal_summary=goal_summary,
         mood_summary=mood_summary,
+        mood_details=mood_details,
         progress_summary=progress_summary,
         services=services,
         last_meal=last_meal_card,

@@ -1,6 +1,6 @@
 # services/agent_interface/app/models/schemas.py
 
-from typing import List, Optional
+from typing import List, Optional, Any
 from pydantic import BaseModel
 
 
@@ -55,7 +55,7 @@ class ProfileResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 4) Meals / Nutrition (NOUVEAU)
+# 4) Meals / Nutrition
 # ---------------------------------------------------------------------------
 
 class MealCard(BaseModel):
@@ -63,7 +63,7 @@ class MealCard(BaseModel):
     Représente un repas scanné par l’utilisateur.
     Utilisé à la fois dans :
       - /dashboard  (last_meal)
-      - endpoints historiques futurs
+      - /coach/history (liste des repas)
     """
     title: str
     description: str
@@ -76,7 +76,7 @@ class MealCard(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 5) Dashboard : services + dernier repas scanné
+# 5) Dashboard : services + dernière séance / repas
 # ---------------------------------------------------------------------------
 
 class ServiceCard(BaseModel):
@@ -85,16 +85,33 @@ class ServiceCard(BaseModel):
     subtitle: str
     route: str
 
+
 class ExerciseItem(BaseModel):
     name: str
     series: str
 
 
 class NextTraining(BaseModel):
+    """
+    Modèle flexible pour la prochaine séance :
+      - soit une séance "texte libre" envoyée par le coach :
+          { "title": "...", "description": "..." }
+      - soit une séance structurée avec durée / intensité / exercices.
+    """
     title: str
-    duration: int
-    intensity: str
-    exercises: List[ExerciseItem]
+    description: Optional[str] = None
+    duration: Optional[int] = None
+    intensity: Optional[str] = None
+    exercises: Optional[List[ExerciseItem]] = None
+
+
+class MoodDetails(BaseModel):
+    """
+    Détails numériques pour les barres Énergie / Mental du dashboard.
+    """
+    energy_value: int
+    mental_value: int
+    label: Optional[str] = None
 
 
 class DashboardResponse(BaseModel):
@@ -102,13 +119,17 @@ class DashboardResponse(BaseModel):
     greeting: str
     goal_summary: str
     mood_summary: str
+    mood_details: MoodDetails
     progress_summary: str
     services: List[ServiceCard]
+    last_meal: Optional[MealCard] = None
     next_training: NextTraining
     nutri_score: int
-    # Ajout essentiel pour afficher le dernier repas scanné
-    last_meal: Optional[MealCard] = None
 
+
+# ---------------------------------------------------------------------------
+# 6) Payload d'humeur renvoyé par l'orchestrateur / agent_mood
+# ---------------------------------------------------------------------------
 
 class MoodPayload(BaseModel):
     label: Optional[str] = None
@@ -116,13 +137,34 @@ class MoodPayload(BaseModel):
     mental_state: Optional[str] = None
     physical_state: Optional[str] = None
 
+    # valeurs numériques éventuelles
+    energy_value: Optional[int] = None
+    mental_value: Optional[int] = None
+    energy_level_value: Optional[int] = None
+    mental_state_value: Optional[int] = None
+
 
 # ---------------------------------------------------------------------------
-# 6) CoachAnswer — modèle utilisé par coach.py
+# 7) Transcription vocale renvoyée par l'agent_speech
+# ---------------------------------------------------------------------------
+
+class TranscriptionPayload(BaseModel):
+    text: Optional[str] = None
+    transcript: Optional[str] = None
+    transcription: Optional[str] = None
+    raw: Optional[Any] = None
+    output_text: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# 8) CoachAnswer — modèle utilisé par les endpoints /coach
 # ---------------------------------------------------------------------------
 
 class CoachAnswer(BaseModel):
+    """
+    Réponse renvoyée au front pour le chat / vocal / image.
+    """
     answer: str
     meal: Optional[MealCard] = None
     mood: Optional[MoodPayload] = None
-
+    transcription: Optional[TranscriptionPayload] = None
