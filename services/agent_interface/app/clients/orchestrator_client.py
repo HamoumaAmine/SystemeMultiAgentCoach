@@ -14,13 +14,14 @@ import httpx
 
 ORCHESTRATOR_URL = os.getenv(
     "ORCHESTRATOR_URL",
-    "http://127.0.0.1:8005/mcp",
+    "http://orchestrator:8005/mcp",   # 👈 service Docker, pas 127.0.0.1
 )
 
 AGENT_MEMORY_URL = os.getenv(
     "AGENT_MEMORY_URL",
-    "http://127.0.0.1:8003/mcp",
+    "http://agent_memory:8003/mcp",   # 👈 service Docker, pas 127.0.0.1
 )
+
 
 
 # ---------------------------------------------------------------------

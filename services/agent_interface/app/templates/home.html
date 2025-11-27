@@ -1,4 +1,4 @@
-<!-- services/agent_interface/app/templates/home.html --> 
+<!-- services/agent_interface/app/templates/home.html -->
 <!doctype html>
 <html lang="fr">
 <head>
@@ -79,15 +79,18 @@
       </div>
     </div>
 
-    <!-- DASHBOARD CARD -->
-    <div class="glass rounded-3xl shadow-xl p-6 md:p-7 fade-up" style="animation-delay:.05s">
+    <!-- Ancre profil (pour les tuiles "Mon profil") -->
+    <div id="profile-section"></div>
+
+    <!-- DASHBOARD CARD (mood / objectif / progression) -->
+    <section id="mood-section"
+             class="glass rounded-3xl shadow-xl p-6 md:p-7 fade-up"
+             style="animation-delay:.05s">
       <div class="flex items-start justify-between">
         <div>
           <h2 class="text-lg font-bold mb-2">Tableau de bord</h2>
 
-          <!-- ✅ NEW DISPLAY WITH ICONS -->
           <div class="space-y-2 text-slate-700">
-
             <p class="flex items-center gap-2 text-sm">
               <span class="w-7 h-7 grid place-items-center rounded-lg bg-blue-100 text-blue-700">🎯</span>
               <span class="font-semibold">Objectif :</span>
@@ -95,8 +98,9 @@
             </p>
 
             <p class="flex items-center gap-2 text-sm">
-              <span class="w-7 h-7 grid place-items-center rounded-lg bg-emerald-100 text-emerald-700">😊</span>
-              <span class="font-semibold">Mood récent :</span>
+              <span id="moodEmoji"
+                    class="w-7 h-7 grid place-items-center rounded-lg bg-emerald-100 text-emerald-700">🧠</span>
+              <span class="font-semibold">Humeur récente :</span>
               <span id="moodSummary"></span>
             </p>
 
@@ -105,7 +109,6 @@
               <span class="font-semibold">Progression :</span>
               <span id="progressSummary"></span>
             </p>
-
           </div>
         </div>
 
@@ -147,47 +150,42 @@
           </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- SERVICES GRID -->
+    <!-- SERVICES GRID (liens vers sections de la page) -->
     <div id="services"
          class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-6 fade-up"
          style="animation-delay:.12s"></div>
 
-    <!-- BOTTOM SECTIONS -->
+    <!-- BOTTOM SECTIONS : stats / nutrition -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 fade-up" style="animation-delay:.18s">
 
-      <!-- NEXT SESSION -->
-      <div class="glass rounded-3xl shadow-lg p-5">
+      <!-- NEXT SESSION = section stats / entraînement -->
+      <section id="stats-section" class="glass rounded-3xl shadow-lg p-5">
         <div class="flex items-center justify-between">
           <h3 class="font-bold text-base">Prochaine séance</h3>
           <span class="text-xs bg-emerald-600 text-white px-2 py-1 rounded-full">Recommandée</span>
         </div>
 
-        <div class="mt-4 space-y-2 text-sm">
+        <div id="trainingContainer" class="mt-4 space-y-2 text-sm">
           <div class="flex items-center gap-2">
-            <div class="w-9 h-9 rounded-xl bg-white grid place-items-center shadow">🔥</div>
+            <div class="w-9 h-9 rounded-xl bg-white grid place-items-center shadow" id="trainingIcon">🔥</div>
             <div>
-              <div class="font-semibold">Full body débutant</div>
-              <div class="text-slate-700">~35 min • Intensité modérée</div>
+              <div class="font-semibold" id="trainingTitle">Chargement...</div>
+              <div class="text-slate-700" id="trainingSubtitle"></div>
             </div>
           </div>
 
-          <ul class="list-disc ml-6 text-slate-800">
-            <li>Échauffement 5 min</li>
-            <li>Squats 3×12</li>
-            <li>Pompes 3×10</li>
-            <li>Gainage 3×30s</li>
-          </ul>
+          <ul id="trainingList" class="list-disc ml-6 text-slate-800"></ul>
 
           <button class="mt-3 w-full bg-black text-white rounded-xl py-2 hover:bg-slate-800 transition">
             Voir le programme complet
           </button>
         </div>
-      </div>
+      </section>
 
-      <!-- LAST MEAL -->
-      <div class="glass rounded-3xl shadow-lg p-5">
+      <!-- LAST MEAL = section nutrition -->
+      <section id="nutrition-section" class="glass rounded-3xl shadow-lg p-5">
         <div class="flex items-center justify-between">
           <h3 class="font-bold text-base">Dernier repas scanné</h3>
           <span id="mealDateBadge" class="text-xs bg-blue-600 text-white px-2 py-1 rounded-full">Aujourd’hui</span>
@@ -196,7 +194,8 @@
         <div class="mt-4 flex gap-4">
           <!-- image placeholder -->
           <div class="w-28 h-28 rounded-2xl bg-white shadow overflow-hidden grid place-items-center">
-            <img id="mealImg" src="https://picsum.photos/200" class="w-full h-full object-cover" alt="meal">
+            <img id="mealImg" src="" class="w-full h-full object-cover hidden" alt="Repas analysé">
+            <span id="mealImgPlaceholder" class="text-2xl text-slate-400">🍽️</span>
           </div>
 
           <div class="flex-1 text-sm space-y-1">
@@ -216,12 +215,14 @@
             </button>
           </div>
         </div>
-      </div>
+      </section>
 
     </div>
 
     <!-- COACH CHAT (texte + vocal + photo) -->
-    <div class="glass rounded-3xl shadow-lg p-5 mt-6 fade-up" style="animation-delay:.22s">
+    <section id="chat-section"
+             class="glass rounded-3xl shadow-lg p-5 mt-6 fade-up"
+             style="animation-delay:.22s">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-bold text-base">Coach IA – Chat, Vocal & Photo repas</h3>
         <span id="voiceStatus" class="text-xs text-slate-600">Micro : inactif</span>
@@ -254,8 +255,34 @@
           </button>
         </div>
       </div>
-    </div>
+    </section>
 
+    <!-- SECTION HISTORIQUE (placeholder pour l’instant) -->
+    <section id="history-section"
+             class="glass rounded-3xl shadow-lg p-5 mt-6 fade-up"
+             style="animation-delay:.24s">
+      <h3 class="font-bold text-base mb-4">Historique</h3>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <!-- Colonne : échanges -->
+        <div>
+          <h4 class="font-semibold mb-2">Derniers échanges avec le coach</h4>
+          <div id="historyMessages"
+               class="bg-white/70 rounded-2xl p-3 max-h-60 overflow-y-auto space-y-2 text-xs text-slate-800">
+            <!-- Items ajoutés en JS -->
+          </div>
+        </div>
+
+        <!-- Colonne : repas -->
+        <div>
+          <h4 class="font-semibold mb-2">Derniers repas scannés</h4>
+          <div id="historyMeals"
+               class="bg-white/70 rounded-2xl p-3 max-h-60 overflow-y-auto space-y-2 text-xs text-slate-800">
+            <!-- Items ajoutés en JS -->
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <!-- MODAL PROFIL -->
@@ -298,93 +325,166 @@ function logout(){
   window.location.href = "/ui/login";
 }
 
-/* ---------- Mood helpers ---------- */
+/* ---------- États globaux pour le dashboard dynamique ---------- */
+let lastMood = null;
+let lastMeal = null;
+let lastProfile = null;
+
+/* ---------- Mood helpers (FR + emoji) ---------- */
+function translateMoodWord(word){
+  if(!word) return "";
+  const w = String(word).toLowerCase();
+  switch(w){
+    case "very_low": return "très bas";
+    case "low": return "bas";
+    case "medium":
+    case "moderate": return "moyen";
+    case "high": return "élevé";
+    case "very_high": return "très élevé";
+    default: return word;
+  }
+}
+
 function summarizeMood(mood){
   if(!mood || typeof mood !== "object"){
-    return "Humeur détectée par l’agent_mood.";
+    return "Humeur détectée par l’agent d’humeur.";
   }
 
-  const label =
+  const rawLabel =
     mood.label ||
     mood.state ||
     mood.overall ||
     mood.mood ||
-    mood.mental_state ||
     "";
 
-  const physical = mood.physical_state || mood.energy_level || "";
-  const mental = (mood.mental_state && mood.mental_state !== label) ? mood.mental_state : "";
+  const rawEnergy = mood.energy_level || mood.physical_state || "";
+  const rawMental = mood.mental_state || "";
+
+  const label  = translateMoodWord(rawLabel);
+  const energy = translateMoodWord(rawEnergy);
+  const mental = translateMoodWord(rawMental);
 
   const parts = [];
-  if(label)    parts.push(label);
-  if(physical) parts.push("énergie " + physical);
-  if(mental)   parts.push("mental " + mental);
+  if(label)  parts.push("Humeur " + label);
+  if(energy) parts.push("Énergie " + energy);
+  if(mental && mental !== label) parts.push("Mental " + mental);
 
   if(parts.length === 0){
-    return "Humeur détectée par l’agent_mood.";
+    return "Humeur détectée par l’agent d’humeur.";
   }
   return parts.join(" · ");
 }
 
+function moodEmojiFromLabel(mood){
+  const rawLabel = (mood &&
+    (mood.label || mood.state || mood.overall || mood.mood || "")).toLowerCase();
+
+  switch(rawLabel){
+    case "very_high":
+    case "high": return "😁";
+    case "medium":
+    case "moderate": return "🙂";
+    case "low": return "😕";
+    case "very_low": return "😞";
+    default: return "🧠";
+  }
+}
+
 function applyMoodToUI(mood){
   if(!mood) return;
+  lastMood = mood;
+
   const txt = summarizeMood(mood);
 
-  // 1) Met à jour la ligne "Mood récent" dans la carte en haut
   const moodSummaryEl = document.getElementById("moodSummary");
   if(moodSummaryEl){
     moodSummaryEl.innerText = txt;
   }
 
-  // 2) Optionnel : petit message dans le chat
-  addChatMessage("coach", "🧠 Mood détecté : " + txt);
+  const moodEmojiEl = document.getElementById("moodEmoji");
+  if(moodEmojiEl){
+    moodEmojiEl.innerText = moodEmojiFromLabel(mood);
+  }
+
+  addChatMessage("coach", "🧠 Analyse d’humeur : " + txt);
+
+  updateDashboardMetrics();
 }
 
 /* ---------- Services icons mapping ---------- */
 const ICONS = {
-  coach: "🤖",
-  sport: "🏋️",
-  nutri: "🍽️",
-  mood: "😊",
-  photo: "📸",
-  stats: "📈"
+  profile:   "👤",
+  coach:     "🤖",
+  nutrition: "🍽️",
+  mood:      "🧠",
+  history:   "📚",
+  stats:     "📊"
 };
 
 /* ---------- Références carte repas ---------- */
-const mealImg      = document.getElementById("mealImg");
-const mealTitleEl  = document.getElementById("mealTitle");
-const mealDescEl   = document.getElementById("mealDesc");
-const mealKcalEl   = document.getElementById("mealKcal");
-const mealProtEl   = document.getElementById("mealProt");
-const mealCarbEl   = document.getElementById("mealCarb");
-const mealFatEl    = document.getElementById("mealFat");
-const mealDateBadge = document.getElementById("mealDateBadge");
-const mealImageInput = document.getElementById("mealImageInput");
+const mealImg          = document.getElementById("mealImg");
+const mealImgPlaceholder = document.getElementById("mealImgPlaceholder");
+const mealTitleEl      = document.getElementById("mealTitle");
+const mealDescEl       = document.getElementById("mealDesc");
+const mealKcalEl       = document.getElementById("mealKcal");
+const mealProtEl       = document.getElementById("mealProt");
+const mealCarbEl       = document.getElementById("mealCarb");
+const mealFatEl        = document.getElementById("mealFat");
+const mealDateBadge    = document.getElementById("mealDateBadge");
+const mealImageInput   = document.getElementById("mealImageInput");
+
+/* ---------- Réinitialisation de la carte 'Dernier repas scanné' ---------- */
+function resetMealCard(){
+  if(mealTitleEl) mealTitleEl.textContent = "Aucun repas scanné pour l’instant";
+  if(mealDescEl)  mealDescEl.textContent  = "Scanne un repas pour voir l’analyse ici.";
+  if(mealDateBadge) mealDateBadge.textContent = "Aujourd’hui";
+
+  if(mealImg){
+    mealImg.src = "";
+    mealImg.classList.add("hidden");
+  }
+  if(mealImgPlaceholder){
+    mealImgPlaceholder.classList.remove("hidden");
+  }
+
+  [mealKcalEl, mealProtEl, mealCarbEl, mealFatEl].forEach(el => {
+    if(el) el.classList.add("hidden");
+  });
+
+  lastMeal = null;
+}
 
 /* ---------- Mise à jour de la carte 'Dernier repas scanné' ---------- */
 function updateMealCard(meal){
-  if(!meal) return;
+  if(!meal){
+    resetMealCard();
+    updateDashboardMetrics();
+    return;
+  }
 
-  // Titre + description
-  if(meal.title){
+  lastMeal = meal;
+
+  if(meal.title && mealTitleEl){
     mealTitleEl.textContent = meal.title;
   }
-  if(meal.description){
+  if(meal.description && mealDescEl){
     mealDescEl.textContent = meal.description;
   }
 
-  // Image (si backend renvoie une URL)
-  if(meal.image_url){
+  if(meal.image_url && mealImg){
     mealImg.src = meal.image_url;
+    mealImg.classList.remove("hidden");
+    if(mealImgPlaceholder){
+      mealImgPlaceholder.classList.add("hidden");
+    }
   }
 
-  // Date (optionnelle)
-  if(meal.scanned_at){
+  if(meal.scanned_at && mealDateBadge){
     mealDateBadge.textContent = meal.scanned_at;
   }
 
-  // Macros / calories
   function showBadge(el, value, suffix){
+    if(!el) return;
     if(value === null || value === undefined || value === ""){
       el.classList.add("hidden");
     } else {
@@ -397,6 +497,75 @@ function updateMealCard(meal){
   showBadge(mealProtEl, meal.proteins_g, " g P");
   showBadge(mealCarbEl, meal.carbs_g, " g G");
   showBadge(mealFatEl,  meal.fats_g, " g L");
+
+  updateDashboardMetrics();
+}
+
+/* ---------- Dashboard metrics dynamiques ---------- */
+function clamp(v, min, max){
+  return Math.max(min, Math.min(max, v));
+}
+
+function updateDashboardMetrics(){
+  let motivation = 50;
+  let activity   = 30;
+  let nutrition  = 50;
+
+  // Profil : plus tu déclares de séances/sem, plus l’activité et la motivation montent
+  if(lastProfile && lastProfile.sessions_per_week != null){
+    const s = Number(lastProfile.sessions_per_week) || 0;
+    activity   += s * 10;   // 0 → +0 ; 3 → +30 ; etc.
+    motivation += s * 5;
+  }
+
+  // Humeur : high → boost la motivation, low → la réduit
+  if(lastMood){
+    const lbl = String(
+      lastMood.label ||
+      lastMood.state ||
+      lastMood.overall ||
+      lastMood.mood ||
+      ""
+    ).toLowerCase();
+
+    if(lbl === "very_high" || lbl === "high"){
+      motivation += 20;
+    } else if(lbl === "medium" || lbl === "moderate"){
+      motivation += 10;
+    } else if(lbl === "low"){
+      motivation -= 10;
+    } else if(lbl === "very_low"){
+      motivation -= 20;
+    }
+  }
+
+  // Repas : si les calories sont "raisonnables", l’équilibre nutrition monte
+  if(lastMeal && lastMeal.kcal != null){
+    const kcal = Number(lastMeal.kcal) || 0;
+    if(kcal >= 350 && kcal <= 750){
+      nutrition += 15;
+    } else if(kcal > 900){
+      nutrition -= 10;
+    }
+  }
+
+  motivation = clamp(motivation, 0, 100);
+  activity   = clamp(activity,   0, 100);
+  nutrition  = clamp(nutrition,  0, 100);
+
+  const motBar = document.getElementById("motivationBar");
+  const actBar = document.getElementById("activityBar");
+  const nutBar = document.getElementById("nutriBar");
+  const motPct = document.getElementById("motivationPct");
+  const actPct = document.getElementById("activityPct");
+  const nutPct = document.getElementById("nutriPct");
+
+  if(motBar) motBar.style.width = motivation + "%";
+  if(actBar) actBar.style.width = activity   + "%";
+  if(nutBar) nutBar.style.width = nutrition  + "%";
+  if(motPct) motPct.innerText   = Math.round(motivation) + "%";
+  if(actPct) actPct.innerText   = Math.round(activity)   + "%";
+  if(nutPct) nutPct.innerText   = Math.round(nutrition)  + "%";
 }
 
 /* ---------- Load dashboard ---------- */
@@ -405,37 +574,78 @@ async function loadDashboard(){
   const res = await fetch("/dashboard/", {
     headers: {"Authorization":"Bearer " + token}
   });
-  if(!res.ok){ logout(); return; }
+  if(!res.ok){
+    console.error("Erreur /dashboard/ -> status =", res.status);
+    return;
+  }
 
   const d = await res.json();
 
-  document.getElementById("goalSummary").innerText = d.goal_summary;
-  document.getElementById("moodSummary").innerText = d.mood_summary;
+  // --- Nutri Score ---
+  if (d.nutri_score !== undefined) {
+    const pct = d.nutri_score;
+    document.getElementById("nutriBar").style.width = pct + "%";
+    document.getElementById("nutriPct").innerText = pct + "%";
+
+    // couleur dynamique
+    const bar = document.getElementById("nutriBar");
+
+    if (pct < 40) bar.className = "h-2 bg-red-500 rounded-full";
+    else if (pct < 65) bar.className = "h-2 bg-orange-500 rounded-full";
+    else bar.className = "h-2 bg-emerald-500 rounded-full";
+  }
+
+  document.getElementById("goalSummary").innerText     = d.goal_summary;
+  document.getElementById("moodSummary").innerText     = d.mood_summary;
   document.getElementById("progressSummary").innerText = d.progress_summary;
 
-  // Si le backend renvoie le dernier repas scanné
+  // --- Prochaine séance dynamique ---
+  if (d.next_training) {
+    document.getElementById("trainingTitle").textContent = d.next_training.title;
+    document.getElementById("trainingSubtitle").textContent =
+        "~" + d.next_training.duration + " min • Intensité " + d.next_training.intensity;
+
+    // Liste exercices
+    const ul = document.getElementById("trainingList");
+    ul.innerHTML = "";
+    d.next_training.exercises.forEach(ex => {
+      const li = document.createElement("li");
+      li.textContent = ex.name + " " + ex.series;
+      ul.appendChild(li);
+    });
+
+    // Icône adaptée
+    const icon = document.getElementById("trainingIcon");
+    const i = d.next_training.intensity.toLowerCase();
+    if(i.includes("douce")) icon.textContent = "🍃";
+    else if(i.includes("mod")) icon.textContent = "🔥";
+    else if(i.includes("haut") || i.includes("élev")) icon.textContent = "⚡";
+  }
+
+  // Dernier repas scanné
   if(d.last_meal){
     updateMealCard(d.last_meal);
+  } else {
+    resetMealCard();
   }
 
   // Services cards
   const container = document.getElementById("services");
-  container.innerHTML = d.services.map((s, i) => `
-    <a href="/ui${s.route}"
-       class="glass rounded-3xl shadow-lg p-5 hover:shadow-2xl hover:-translate-y-1 transition fade-up"
-       style="animation-delay:${0.2 + i*0.05}s">
+  container.innerHTML = d.services.map((s) => {
+    const href = s.route.startsWith("#") ? `/ui/home${s.route}` : `/ui${s.route}`;
+    const icon = ICONS[s.key] || "✨";
+    return `
+      <a href="${href}" class="glass rounded-2xl p-4 flex flex-col justify-between hover:shadow-lg transition">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-xl">${icon}</div>
+        </div>
+        <div class="font-semibold text-sm mb-1">${s.title}</div>
+        <div class="text-xs text-slate-600">${s.subtitle}</div>
+      </a>
+    `;
+  }).join("");
 
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="text-base font-semibold">${s.title}</div>
-          <div class="text-sm text-slate-800/80 mt-1">${s.subtitle}</div>
-        </div>
-        <div class="w-10 h-10 rounded-2xl bg-white shadow grid place-items-center text-lg">
-          ${ICONS[s.key] || "✨"}
-        </div>
-      </div>
-    </a>
-  `).join("");
+  updateDashboardMetrics();
 }
 
 /* ---------- Load profile ---------- */
@@ -446,17 +656,21 @@ async function loadProfile(){
 
   if(meRes.ok){
     const me = await meRes.json();
-    document.getElementById("pName").innerText = me.firstname + " " + me.lastname;
+    document.getElementById("pName").innerText  = me.firstname + " " + me.lastname;
     document.getElementById("pEmail").innerText = me.email;
   }
   if(profileRes.ok){
     const p = await profileRes.json();
     const prof = p.profile || {};
-    document.getElementById("pAge").innerText = prof.age ?? "-";
-    document.getElementById("pHeight").innerText = (prof.height_cm ?? "-") + " cm";
-    document.getElementById("pWeight").innerText = (prof.weight_kg ?? "-") + " kg";
-    document.getElementById("pGoal").innerText = prof.goal ?? "-";
+
+    document.getElementById("pAge").innerText      = prof.age ?? "-";
+    document.getElementById("pHeight").innerText   = (prof.height_cm ?? "-") + " cm";
+    document.getElementById("pWeight").innerText   = (prof.weight_kg ?? "-") + " kg";
+    document.getElementById("pGoal").innerText     = prof.goal ?? "-";
     document.getElementById("pSessions").innerText = prof.sessions_per_week ?? "-";
+
+    lastProfile = prof;
+    updateDashboardMetrics();
   }
 }
 
@@ -494,6 +708,24 @@ function addChatMessage(role, text){
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
+/* Helper pour extraire le texte de transcription */
+function extractTranscriptionText(tr){
+  if(!tr) return "";
+  if(typeof tr === "string") return tr;
+  try{
+    if(tr.text) return String(tr.text);
+    if(tr.transcript) return String(tr.transcript);
+    if(tr.transcription) return String(tr.transcription);
+    if(tr.raw) return String(tr.raw);
+    for(const k in tr){
+      if(typeof tr[k] === "string") return String(tr[k]);
+    }
+  } catch(e){
+    console.warn("Erreur lecture transcription", e);
+  }
+  return "";
+}
+
 /* ---------- Envoi texte ---------- */
 document.getElementById("sendTextBtn").addEventListener("click", async () => {
   const token = getToken();
@@ -521,12 +753,10 @@ document.getElementById("sendTextBtn").addEventListener("click", async () => {
   const data = await res.json();
   addChatMessage("coach", data.answer || "Pas de réponse du coach.");
 
-  // Mood dynamique
   if(data.mood){
     applyMoodToUI(data.mood);
   }
 
-  // Si le backend renvoie aussi une info repas (ex : depuis vision)
   if(data.meal){
     updateMealCard(data.meal);
   }
@@ -543,10 +773,6 @@ async function sendMealImage(file){
   const formData = new FormData();
   formData.append("file", file, file.name || "meal.jpg");
 
-  // 🔗 Endpoint à implémenter côté backend :
-  // - reçoit l’image
-  // - appelle orchestrator / agent_vision / agent_knowledge
-  // - renvoie : { answer: "...", meal: { title, description, image_url, kcal, proteins_g, carbs_g, fats_g, scanned_at } }
   const res = await fetch("/coach/photo-meal", {
     method: "POST",
     headers: {
@@ -570,7 +796,7 @@ async function sendMealImage(file){
   if(data.mood){
     applyMoodToUI(data.mood);
   }
-  
+
   if(data.meal){
     updateMealCard(data.meal);
   }
@@ -580,16 +806,13 @@ function handleMealImageChange(e){
   const file = e.target.files && e.target.files[0];
   if(!file) return;
   sendMealImage(file);
-  // reset pour pouvoir re-sélectionner la même image si besoin
   e.target.value = "";
 }
 
 mealImageInput.addEventListener("change", handleMealImageChange);
-
 document.getElementById("photoBtn").addEventListener("click", () => {
   mealImageInput.click();
 });
-
 document.getElementById("rescanMealBtn").addEventListener("click", () => {
   mealImageInput.click();
 });
@@ -604,7 +827,6 @@ async function toggleRecording(){
   if(!token){ logout(); return; }
 
   if(!isRecording){
-    // démarrage
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorder = new MediaRecorder(stream);
@@ -619,6 +841,9 @@ async function toggleRecording(){
         const blob = new Blob(audioChunks, { type: "audio/webm" });
         const formData = new FormData();
         formData.append("file", blob, "voice.webm");
+
+        const token = getToken();
+        if(!token){ logout(); return; }
 
         const res = await fetch("/coach/voice", {
           method: "POST",
@@ -635,6 +860,22 @@ async function toggleRecording(){
         }
 
         const data = await res.json();
+
+        // 🧠 Nouvelle partie : afficher la transcription comme message utilisateur
+        if (data.transcription && data.transcription.output_text) {
+          const txt = data.transcription.output_text.trim();
+          if (txt) {
+            addChatMessage("user", "🎙️ (vocal) " + txt);
+          }
+        } else {
+          // Pas de transcription exploitable
+          addChatMessage(
+            "user",
+            "🎙️ (vocal envoyé – transcription non disponible)"
+          );
+        }
+
+        // Réponse du coach
         addChatMessage("coach", data.answer || "Pas de réponse du coach.");
         voiceStatus.innerText = "Micro : inactif";
 
@@ -642,11 +883,11 @@ async function toggleRecording(){
           applyMoodToUI(data.mood);
         }
 
-        // Si une analyse de repas est aussi renvoyée
         if(data.meal){
           updateMealCard(data.meal);
         }
       };
+
 
       mediaRecorder.start();
       isRecording = true;
@@ -657,7 +898,6 @@ async function toggleRecording(){
       voiceStatus.innerText = "Micro : permission refusée";
     }
   } else {
-    // arrêt
     if(mediaRecorder){
       mediaRecorder.stop();
       mediaRecorder.stream.getTracks().forEach(t => t.stop());
@@ -669,8 +909,109 @@ async function toggleRecording(){
 
 document.getElementById("voiceBtn").addEventListener("click", toggleRecording);
 
+/* ---------- Chargement de l'historique (coach + repas) ---------- */
+async function loadHistory(){
+  const token = getToken();
+  if(!token){ logout(); return; }
+
+  const res = await fetch("/coach/history", {
+    headers: {
+      "Authorization": "Bearer " + token
+    }
+  });
+
+  const messagesBox = document.getElementById("historyMessages");
+  const mealsBox = document.getElementById("historyMeals");
+
+  if(!messagesBox || !mealsBox){
+    return;
+  }
+
+  if(!res.ok){
+    messagesBox.innerHTML = "<p class='text-red-500'>Impossible de charger l’historique.</p>";
+    mealsBox.innerHTML = "<p class='text-red-500'>Impossible de charger l’historique des repas.</p>";
+    return;
+  }
+
+  const data = await res.json();
+
+  // -------- 1) Historique mémoire / messages --------
+  let interactions = [];
+
+  // on essaye de deviner le bon champ
+  if (Array.isArray(data)) {
+    interactions = data;
+  } else if (Array.isArray(data.messages)) {
+    interactions = data.messages;
+  } else if (Array.isArray(data.history)) {
+    interactions = data.history;
+  } else if (Array.isArray(data.logs)) {
+    interactions = data.logs;
+  } else if (Array.isArray(data.memory)) {
+    interactions = data.memory;
+  }
+
+  messagesBox.innerHTML = "";
+
+  if(interactions.length === 0){
+    messagesBox.innerHTML = "<p class='text-slate-500'>Aucun échange enregistré pour l’instant.</p>";
+  } else {
+    interactions.slice(-20).forEach((item) => {
+      // on essaye des formes classiques : {role, content, timestamp}
+      const role = item.role || item.speaker || "coach";
+      const content = item.content || item.text || JSON.stringify(item);
+      const ts = item.timestamp || item.time || "";
+
+      const div = document.createElement("div");
+      div.className = "border border-slate-200 rounded-xl px-2 py-1";
+
+      div.innerHTML = `
+        <div class="flex justify-between items-center mb-0.5">
+          <span class="font-semibold">${role}</span>
+          <span class="text-[10px] text-slate-400">${ts}</span>
+        </div>
+        <div class="text-[11px] whitespace-pre-wrap">${content}</div>
+      `;
+      messagesBox.appendChild(div);
+    });
+  }
+
+  // -------- 2) Derniers repas --------
+  const meals = Array.isArray(data.meals) ? data.meals : [];
+
+  mealsBox.innerHTML = "";
+  if(meals.length === 0){
+    mealsBox.innerHTML = "<p class='text-slate-500'>Aucun repas scanné pour l’instant.</p>";
+  } else {
+    meals.forEach((meal) => {
+      const div = document.createElement("div");
+      div.className = "border border-slate-200 rounded-xl px-2 py-1 flex gap-2";
+
+      const imgHtml = meal.image_url
+        ? `<img src="${meal.image_url}" class="w-10 h-10 rounded-lg object-cover" alt="repas">`
+        : `<div class="w-10 h-10 rounded-lg bg-slate-100 grid place-items-center text-lg">🍽️</div>`;
+
+      div.innerHTML = `
+        ${imgHtml}
+        <div class="flex-1">
+          <div class="flex justify-between items-center">
+            <span class="font-semibold">${meal.title || "Repas"}</span>
+            <span class="text-[10px] text-slate-400">${meal.scanned_at || ""}</span>
+          </div>
+          <div class="text-[11px] text-slate-700 line-clamp-2">${meal.description || ""}</div>
+          <div class="mt-0.5 text-[10px] text-slate-600">
+            ${meal.kcal ? `~${meal.kcal} kcal` : ""}
+          </div>
+        </div>
+      `;
+      mealsBox.appendChild(div);
+    });
+  }
+}
+
 /* ---------- Init ---------- */
 loadDashboard();
+loadHistory();
 </script>
 </body>
 </html>

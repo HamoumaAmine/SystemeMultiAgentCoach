@@ -1,5 +1,3 @@
-# services/orchestrator/app/services_registry.py
-
 from __future__ import annotations
 
 import os
@@ -10,19 +8,18 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 import httpx
 
 # -------------------------------------------------------------------------
-# URLs des services : en local on utilise 127.0.0.1, en Docker on override
-# avec des variables d'environnement.
+# URLs des services : en Docker on utilise les noms de services
 # -------------------------------------------------------------------------
 
-AGENT_MANAGER_URL = os.getenv("AGENT_MANAGER_URL", "http://127.0.0.1:8004/mcp")
-AGENT_MOOD_URL = os.getenv("AGENT_MOOD_URL", "http://127.0.0.1:8001/mcp")
-AGENT_CERVEAU_URL = os.getenv("AGENT_CERVEAU_URL", "http://127.0.0.1:8002/mcp")
-AGENT_SPEECH_URL = os.getenv("AGENT_SPEECH_URL", "http://127.0.0.1:8006/mcp")
+AGENT_MANAGER_URL = os.getenv("AGENT_MANAGER_URL", "http://agent_manager:8004/mcp")
+AGENT_MOOD_URL = os.getenv("AGENT_MOOD_URL", "http://agent_mood:8001/mcp")
+AGENT_CERVEAU_URL = os.getenv("AGENT_CERVEAU_URL", "http://agent_cerveau:8002/mcp")
+AGENT_SPEECH_URL = os.getenv("AGENT_SPEECH_URL", "http://agent_speech:8006/mcp")
 AGENT_KNOWLEDGE_URL = os.getenv(
-    "AGENT_KNOWLEDGE_URL", "http://127.0.0.1:8007/mcp"
+    "AGENT_KNOWLEDGE_URL", "http://agent_knowledge:8007/mcp"
 )
 AGENT_VISION_URL = os.getenv(
-    "AGENT_VISION_URL", "http://127.0.0.1:8008/mcp"
+    "AGENT_VISION_URL", "http://agent_vision:8008/mcp"
 )
 
 
@@ -209,17 +206,7 @@ class ServiceRegistry:
         vision_result: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """
-        Appelle l'agent_mood et renvoie un dict mood_state normalisé :
-
-        {
-          "mood_label": "...",
-          "score": 0.7,
-          "valence": "negative",
-          "energy": "low",
-          "physical_state": "low",
-          "mental_state": "low",
-          "matched_keywords": {...}
-        }
+        Appelle l'agent_mood et renvoie un dict mood_state normalisé.
         """
 
         msg: Dict[str, Any] = {
@@ -236,8 +223,16 @@ class ServiceRegistry:
         }
 
         try:
+            # 🔍 DEBUG : on log l'appel mood
+            print(
+                "[ORCH] appel agent_mood avec texte :",
+                (command.text or "")[:80],
+                flush=True,
+            )
+
             resp = await call_agent(AGENT_MOOD_URL, msg)
             payload = resp.get("payload", {}) or {}
+
 
             if payload.get("status") != "ok":
                 return None
@@ -274,12 +269,6 @@ class ServiceRegistry:
     ) -> Optional[str]:
         """
         Appelle l'agent_cerveau pour générer la réponse de coaching.
-
-        On lui passe :
-          - user_input = command.text
-          - mood_state = dict éventuellement issu de l'agent_mood
-          - mood = mood_state["mood_label"] si dispo
-          - expert_knowledge = combinaison de nutrition_result + vision_result
         """
 
         payload: Dict[str, Any] = {
@@ -347,18 +336,6 @@ class ServiceRegistry:
         Appelle l'agent_speech pour transcrire un fichier audio.
 
         On s'attend à ce que command.text contienne le chemin du fichier audio.
-
-        L'agent_speech renvoie normalement un payload du type :
-          {
-            "status": "ok",
-            "task": "transcribe_audio",
-            "agent": "speech_to_text",
-            "input_file": "...",
-            "output_file": "...",
-            "output_text": "..."
-          }
-
-        On renvoie ce dict brut à l'orchestrateur, ou None en cas d'erreur.
         """
 
         audio_path = command.text
@@ -376,12 +353,21 @@ class ServiceRegistry:
         }
 
         try:
+            # 🔍 DEBUG : on log l'appel
+            print("[ORCH] appel agent_speech avec audio_path :", audio_path, flush=True)
+
             resp = await call_agent(AGENT_SPEECH_URL, msg)
             payload = resp.get("payload", {}) or {}
+
+            # 🔍 DEBUG : réponse brute de l'agent_speech
+            print("[ORCH] réponse brute agent_speech :", payload, flush=True)
+
             if payload.get("status") != "ok":
                 return None
+
             return payload
-        except Exception:
+        except Exception as e:
+            print("[ORCH] ERREUR appel agent_speech :", repr(e), flush=True)
             return None
 
     async def _handle_knowledge_nutrition(
@@ -394,11 +380,8 @@ class ServiceRegistry:
     ) -> Optional[Dict[str, Any]]:
         """
         Appelle l'agent_knowledge pour obtenir des suggestions nutritionnelles.
-
-        On renvoie uniquement le champ "result" à l'orchestrateur.
         """
 
-        # 🔍 DEBUG : on log le goal envoyé à l’agent_knowledge
         print("[ORCH] appel agent_knowledge avec goal :", command.text, flush=True)
 
         msg: Dict[str, Any] = {
@@ -417,12 +400,7 @@ class ServiceRegistry:
             resp = await call_agent(AGENT_KNOWLEDGE_URL, msg)
             payload = resp.get("payload", {}) or {}
 
-            # 🔍 DEBUG : réponse brute de l’agent_knowledge
-            print(
-                "[ORCH] réponse brute agent_knowledge :",
-                payload,
-                flush=True,
-            )
+            print("[ORCH] réponse brute agent_knowledge :", payload, flush=True)
 
             if payload.get("status") != "ok":
                 return None
@@ -431,7 +409,7 @@ class ServiceRegistry:
                 return None
             return result
         except Exception as e:
-            print("[ORCH] ERREUR appel agent_knowledge :", repr(e), flush=True)
+            print("[ORCH] ERREUR appel_agent_knowledge :", repr(e), flush=True)
             return None
 
     async def _handle_vision_analyze(
@@ -444,18 +422,11 @@ class ServiceRegistry:
     ) -> Optional[Dict[str, Any]]:
         """
         Appelle l'agent_vision pour analyser une image (photo de repas).
-
-        On renvoie de préférence le champ "result" (analyse structurée),
-        ou à défaut le payload complet.
         """
 
         image_path = command.text
 
-        print(
-            "[ORCH] appel agent_vision avec image_path :",
-            image_path,
-            flush=True,
-        )
+        print("[ORCH] appel agent_vision avec image_path :", image_path, flush=True)
 
         msg: Dict[str, Any] = {
             "message_id": str(uuid.uuid4()),
@@ -465,7 +436,6 @@ class ServiceRegistry:
             "payload": {
                 "task": "analyze_image",
                 "image_path": image_path,
-                # On peut passer un goal générique, le prompt interne gère le reste
                 "user_goal": "Analyse du repas pour le coaching sport/nutrition",
             },
             "context": {"user_id": user_id} if user_id else {},
@@ -480,12 +450,10 @@ class ServiceRegistry:
             if payload.get("status") != "ok":
                 return None
 
-            # La plupart du temps, l'agent_vision renvoie un champ "result"
             result = payload.get("result")
             if result is not None:
                 return result
 
-            # Sinon on renvoie le payload entier
             return payload
         except Exception as e:
             print("[ORCH] ERREUR appel agent_vision :", repr(e), flush=True)

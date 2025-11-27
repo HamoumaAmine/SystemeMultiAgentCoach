@@ -124,9 +124,13 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     # 1) Appeler l'agent_manager pour savoir quels services exécuter
     # -------------------------------------------------------------------------
     services = await _route_with_manager(user_input, user_id, audio_path)
+    print("[ORCH] services demandés par agent_manager :", services, flush=True)
 
     # Convertir vers des objets ServiceCommand
     service_commands: List[ServiceCommand] = []
+    has_speech_cmd = False
+    has_coaching_cmd = False
+
     for service_cmd in services:
         service_name = service_cmd.get("service")
         command = service_cmd.get("command")
@@ -135,24 +139,49 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
         if not service_name or not command:
             continue
 
-        service_commands.append(
-            ServiceCommand(
-                service=service_name,
-                command=command,
-                text=text_for_service,
-            )
+        cmd = ServiceCommand(
+            service=service_name,
+            command=command,
+            text=text_for_service,
         )
+        service_commands.append(cmd)
+
+        if cmd.service == "speech" and cmd.command == "transcribe_audio":
+            has_speech_cmd = True
+        if cmd.service == "coaching" and cmd.command == "coach_response":
+            has_coaching_cmd = True
+
+    # -------------------------------------------------------------------------
+    # 1.a) S'assurer que le vocal est bien transcrit
+    #   - si audio_path est présent mais pas de commande speech,
+    #     on en injecte une nous-mêmes.
+    #   - si une commande speech existe déjà, on force son .text = audio_path.
+    # -------------------------------------------------------------------------
+    if audio_path:
+        if not has_speech_cmd:
+            # On force une commande speech en premier
+            service_commands.insert(
+                0,
+                ServiceCommand(
+                    service="speech",
+                    command="transcribe_audio",
+                    text=audio_path,
+                ),
+            )
+        else:
+            for c in service_commands:
+                if c.service == "speech" and c.command == "transcribe_audio":
+                    c.text = audio_path
 
     # -------------------------------------------------------------------------
     # 1.b) Ajouter une commande vision si une image est fournie
     # -------------------------------------------------------------------------
     if image_path:
-        # On crée une commande explicite pour agent_vision
         service_commands.append(
             ServiceCommand(
                 service="vision",
                 command="analyze_image",
-                text=image_path,  # utilisé comme chemin d'image par le registry
+                text=image_path,
             )
         )
 
@@ -168,18 +197,9 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     nutrition_result: Optional[Dict[str, Any]] = None
     vision_result: Optional[Dict[str, Any]] = None
 
-    # On stocke les commandes "coaching" pour les exécuter en dernier
     coaching_commands: List[ServiceCommand] = []
 
     # ------------------------- 2.1 Première passe ----------------------------
-    # On exécute :
-    #  - speech/transcribe_audio
-    #  - mood/analyze_mood
-    #  - nutrition/analyze_meal
-    #  - knowledge/nutrition_suggestions
-    #  - vision/analyze_image
-    # On NE lance PAS encore coaching/coach_response ici.
-    # -------------------------------------------------------------------------
     for cmd in service_commands:
         # Cas spécial : speech
         if cmd.service == "speech" and cmd.command == "transcribe_audio":
@@ -218,8 +238,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             coaching_commands.append(cmd)
             continue
 
-        # Pour les autres services (mood, nutrition, knowledge...),
-        # si on a une transcription, on l'utilise comme texte.
+        # Pour les autres services, si on a une transcription, on l'utilise
         if transcribed_text:
             cmd.text = transcribed_text
 
@@ -231,7 +250,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             vision_result=vision_result,
         )
 
-        # Interprétation du résultat selon le type de service
+        # mood
         if cmd.service == "mood" and cmd.command == "analyze_mood":
             if isinstance(result, Dict):
                 mood_state = result
@@ -251,14 +270,22 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
         ):
             nutrition_result = result
 
-    # ------------------------- 2.2 Deuxième passe ----------------------------
-    # Maintenant qu'on a :
-    #   - mood_state
-    #   - nutrition_result
-    #   - vision_result
-    #   - éventuellement transcribed_text
-    # On peut appeler coaching/coach_response proprement.
     # -------------------------------------------------------------------------
+    # 2.1bis) Si aucun service de coaching n'a été prévu par l'agent_manager,
+    #         on en ajoute un par défaut basé sur la transcription (ou le texte).
+    # -------------------------------------------------------------------------
+    if not coaching_commands:
+        base_text = transcribed_text or (user_input or "")
+        if base_text.strip():
+            coaching_commands.append(
+                ServiceCommand(
+                    service="coaching",
+                    command="coach_response",
+                    text=base_text,
+                )
+            )
+
+    # ------------------------- 2.2 Deuxième passe ----------------------------
     for cmd in coaching_commands:
         if transcribed_text:
             cmd.text = transcribed_text

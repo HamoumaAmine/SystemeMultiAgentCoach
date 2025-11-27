@@ -85,6 +85,17 @@ class ServiceCard(BaseModel):
     subtitle: str
     route: str
 
+class ExerciseItem(BaseModel):
+    name: str
+    series: str
+
+
+class NextTraining(BaseModel):
+    title: str
+    duration: int
+    intensity: str
+    exercises: List[ExerciseItem]
+
 
 class DashboardResponse(BaseModel):
     user_id: str
@@ -93,9 +104,17 @@ class DashboardResponse(BaseModel):
     mood_summary: str
     progress_summary: str
     services: List[ServiceCard]
-
+    next_training: NextTraining
+    nutri_score: int
     # Ajout essentiel pour afficher le dernier repas scanné
     last_meal: Optional[MealCard] = None
+
+
+class MoodPayload(BaseModel):
+    label: Optional[str] = None
+    energy_level: Optional[str] = None
+    mental_state: Optional[str] = None
+    physical_state: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -104,4 +123,6 @@ class DashboardResponse(BaseModel):
 
 class CoachAnswer(BaseModel):
     answer: str
-    meal: Optional[dict] = None
+    meal: Optional[MealCard] = None
+    mood: Optional[MoodPayload] = None
+

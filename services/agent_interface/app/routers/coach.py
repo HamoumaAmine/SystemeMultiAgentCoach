@@ -25,9 +25,11 @@ from app.clients.orchestrator_client import (
     save_memory,
 )
 from app.core.store import get_user_by_id, get_user_id_from_token
-from app.core.meals_store import save_meal  # ✅ historique des repas
+from app.core.meals_store import save_meal, get_recent_meals  # ✅ historique des repas
+from app.core.mood_store import save_mood
 
 router = APIRouter(prefix="/coach", tags=["coach"])
+
 
 # ---------------------------------------------------------------------------
 # 1) Modèles Pydantic pour les requêtes / réponses
@@ -42,13 +44,15 @@ class CoachAnswer(BaseModel):
     """
     Réponse renvoyée au front pour le chat / vocal / image.
 
-    - answer : texte du coach (agent_cerveau)
-    - meal   : résumé du repas si une analyse a été faite
-    - mood   : état d'humeur renvoyé par l'orchestrateur (agent_mood)
+    - answer        : texte du coach (agent_cerveau)
+    - meal          : résumé du repas si une analyse a été faite
+    - mood          : état d'humeur renvoyé par l'orchestrateur (agent_mood)
+    - transcription : résultat brut de la transcription vocale (agent_speech)
     """
     answer: str
     meal: Optional[Dict[str, Any]] = None
     mood: Optional[Dict[str, Any]] = None
+    transcription: Optional[Dict[str, Any]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +98,7 @@ async def get_current_user(
 
 
 # ---------------------------------------------------------------------------
-# 3) Helper : construit l’objet "meal" pour la carte "Dernier repas scanné"
+# 3) Helpers : repas & transcription
 # ---------------------------------------------------------------------------
 
 
@@ -127,7 +131,10 @@ def build_meal_from_payload(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]
         niveau_calorique = calories_estimees.get("niveau_calorique")
     elif isinstance(calories_estimees, (int, float, str)):
         # Cas simple : un nombre ou une chaîne directement
-        total_kcal = calories_estimees
+        try:
+            total_kcal = float(calories_estimees)
+        except Exception:
+            total_kcal = None
 
     # Petite description textuelle pour la carte
     parts = [desc_generale]
@@ -157,6 +164,57 @@ def build_meal_from_payload(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]
     }
 
     return meal
+
+
+def extract_transcription_obj(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Essaie de récupérer l'objet de transcription renvoyé par l'agent_speech
+    dans différents champs possibles.
+    """
+    tr = (
+        payload.get("speech_transcription")
+        or payload.get("stt_result")
+        or payload.get("transcription")
+    )
+
+    if tr is None:
+        return None
+
+    # On renvoie toujours un dict pour que le front traite ça proprement
+    if isinstance(tr, dict):
+        return tr
+    if isinstance(tr, str):
+        return {"text": tr}
+
+    # On ne connaît pas la forme exacte, on enveloppe
+    return {"raw": tr}
+
+
+def extract_transcription_text(transcription: Optional[Dict[str, Any]]) -> str:
+    """
+    À partir de l'objet transcription (dict), essaie d'en extraire une chaîne.
+    """
+    if transcription is None:
+        return ""
+
+    if "text" in transcription and isinstance(transcription["text"], str):
+        return transcription["text"]
+
+    if "transcript" in transcription and isinstance(transcription["transcript"], str):
+        return transcription["transcript"]
+
+    if "transcription" in transcription and isinstance(transcription["transcription"], str):
+        return transcription["transcription"]
+
+    if "raw" in transcription and isinstance(transcription["raw"], str):
+        return transcription["raw"]
+
+    # Dernier recours : on prend la première valeur string
+    for v in transcription.values():
+        if isinstance(v, str):
+            return v
+
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +256,13 @@ async def coach_text(
     # 🔥 Récupération du mood envoyé par l’orchestrateur
     mood = payload.get("mood_state") or payload.get("mood_result")
 
+    # Sauvegarde du mood si détecté
+    if mood:
+        try:
+            save_mood(user_id, mood)
+        except Exception:
+            pass
+
     # ✅ Si le texte a déclenché une analyse de repas (ex: il décrit une photo déjà connue)
     if meal is not None:
         try:
@@ -212,7 +277,25 @@ async def coach_text(
             # On ne bloque pas la réponse si la persistance échoue
             pass
 
-    return CoachAnswer(answer=answer, meal=meal, mood=mood)
+    # ✅ Sauvegarde dans l’agent de mémoire (historique de chat)
+    try:
+        await save_memory(
+            user_id=user_id,
+            memory={
+                "type": "text",
+                "user_message": req.text,
+                "coach_answer": answer,
+                "mood": mood,
+                "meal": meal,
+                "created_at": datetime.utcnow().isoformat(),
+            },
+        )
+    except Exception:
+        # On ne casse jamais la réponse pour un problème de mémoire
+        pass
+
+    # Pas de transcription dans le cas texte
+    return CoachAnswer(answer=answer, meal=meal, mood=mood, transcription=None)
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +320,10 @@ async def coach_voice(
     Reçoit un fichier audio (webm, mp3, etc.) depuis l’interface,
     le sauvegarde temporairement, et appelle l’orchestrateur
     avec audio_path.
+
+    Si l'orchestrateur renvoie une transcription mais pas de coach_answer,
+    on fait un deuxième appel texte avec cette transcription pour obtenir
+    une vraie réponse du coach.
     """
 
     user_id = user["user_id"]
@@ -248,6 +335,7 @@ async def coach_voice(
     with tmp_path.open("wb") as f:
         f.write(await file.read())
 
+    # 1) Premier appel : avec audio_path (agent_speech)
     try:
         orch_resp = await call_orchestrator(
             user_input="",
@@ -260,10 +348,19 @@ async def coach_voice(
         pass
 
     payload = orch_resp.get("payload", {}) or {}
-    answer = payload.get("coach_answer") or "Je n’ai pas pu générer de réponse pour ce vocal."
+    answer = payload.get("coach_answer")
 
     meal = build_meal_from_payload(payload)
     mood = payload.get("mood_state") or payload.get("mood_result")
+    transcription = extract_transcription_obj(payload)
+    transcription_text = extract_transcription_text(transcription)
+
+    # Sauvegarde du mood si détecté
+    if mood:
+        try:
+            save_mood(user_id, mood)
+        except Exception:
+            pass
 
     # ✅ Si le vocal a entraîné l’analyse d’un repas, on le sauvegarde aussi
     if meal is not None:
@@ -279,7 +376,59 @@ async def coach_voice(
             # On ne fait rien si ça plante, l’important est de répondre
             pass
 
-    return CoachAnswer(answer=answer, meal=meal, mood=mood)
+    # 2) Si pas de réponse mais on a une transcription,
+    #    on refait un appel texte avec cette transcription.
+    if not answer and transcription_text:
+        try:
+            orch_resp2 = await call_orchestrator(
+                user_input=transcription_text,
+                user_id=user_id,
+            )
+            payload2 = orch_resp2.get("payload", {}) or {}
+            answer = payload2.get("coach_answer") or answer
+
+            # On peut aussi récupérer un mood/meal complémentaires
+            mood2 = payload2.get("mood_state") or payload2.get("mood_result")
+            if mood2 and not mood:
+                mood = mood2
+
+            meal2 = build_meal_from_payload(payload2)
+            if meal2 and not meal:
+                meal = meal2
+
+        except Exception:
+            # On ne veut pas casser la réponse si le deuxième appel échoue
+            pass
+
+    # 3) Fallback final si toujours rien
+    if not answer:
+        if transcription_text:
+            answer = (
+                "J’ai bien reçu ton vocal et je l’ai transcrit, "
+                "mais je n’ai pas réussi à générer une réponse adaptée pour l’instant."
+            )
+        else:
+            answer = "Je n’ai pas pu générer de réponse pour ce vocal."
+
+    # ✅ Sauvegarde dans l’agent de mémoire
+    try:
+        await save_memory(
+            user_id=user_id,
+            memory={
+                "type": "voice",
+                "audio_file": str(tmp_path),
+                "transcription": transcription_text or None,
+                "user_message": transcription_text or None,
+                "coach_answer": answer,
+                "mood": mood,
+                "meal": meal,
+                "created_at": datetime.utcnow().isoformat(),
+            },
+        )
+    except Exception:
+        pass
+
+    return CoachAnswer(answer=answer, meal=meal, mood=mood, transcription=transcription)
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +475,14 @@ async def coach_image(
 
     meal = build_meal_from_payload(payload)
     mood = payload.get("mood_state") or payload.get("mood_result")
+    transcription = extract_transcription_obj(payload)
+
+    # Sauvegarde du mood si détecté
+    if mood:
+        try:
+            save_mood(user_id, mood)
+        except Exception:
+            pass
 
     # ✅ Sauvegarde dans l’historique des repas
     if meal is not None:
@@ -340,7 +497,24 @@ async def coach_image(
         except Exception:
             pass
 
-    return CoachAnswer(answer=answer, meal=meal, mood=mood)
+    # ✅ Sauvegarde aussi dans la mémoire globale
+    try:
+        await save_memory(
+            user_id=user_id,
+            memory={
+                "type": "image",
+                "image_url": image_url,
+                "user_message": "Analyse mon repas sur la photo",
+                "coach_answer": answer,
+                "mood": mood,
+                "meal": meal,
+                "created_at": datetime.utcnow().isoformat(),
+            },
+        )
+    except Exception:
+        pass
+
+    return CoachAnswer(answer=answer, meal=meal, mood=mood, transcription=transcription)
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +558,14 @@ async def coach_photo_meal(
 
     meal = build_meal_from_payload(payload)
     mood = payload.get("mood_state") or payload.get("mood_result")
+    transcription = extract_transcription_obj(payload)
+
+    # Sauvegarde du mood si détecté
+    if mood:
+        try:
+            save_mood(user_id, mood)
+        except Exception:
+            pass
 
     # ✅ Sauvegarde aussi via cet alias
     if meal is not None:
@@ -398,7 +580,24 @@ async def coach_photo_meal(
         except Exception:
             pass
 
-    return CoachAnswer(answer=answer, meal=meal, mood=mood)
+    # ✅ Sauvegarde dans la mémoire
+    try:
+        await save_memory(
+            user_id=user_id,
+            memory={
+                "type": "image",
+                "image_url": image_url,
+                "user_message": "Analyse mon repas sur la photo",
+                "coach_answer": answer,
+                "mood": mood,
+                "meal": meal,
+                "created_at": datetime.utcnow().isoformat(),
+            },
+        )
+    except Exception:
+        pass
+
+    return CoachAnswer(answer=answer, meal=meal, mood=mood, transcription=transcription)
 
 
 # ---------------------------------------------------------------------------
@@ -411,11 +610,28 @@ async def coach_history(
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """
-    Récupère l’historique des interactions utilisateur depuis l’agent_memory
-    via l’orchestrateur.
+    Historique combiné :
+      - logs mémorisés par agent_memory (via orchestrateur_client.get_history)
+      - derniers repas scannés (meals.db)
+
+    On renvoie un objet JSON du type :
+    {
+      "memory": ...  # ce que renvoie agent_memory
+      "meals": [ { title, description, kcal, image_url, scanned_at, ... }, ... ]
+    }
     """
     user_id = user["user_id"]
-    return await get_history(user_id=user_id)
+
+    # 1) historique "mémoire" (agent_memory)
+    memory_raw = await get_history(user_id=user_id)
+
+    # 2) derniers repas (par ex. 20 derniers)
+    meals = get_recent_meals(user_id=user_id, limit=20)
+
+    return {
+        "memory": memory_raw,
+        "meals": meals,
+    }
 
 
 @router.post("/memory")
