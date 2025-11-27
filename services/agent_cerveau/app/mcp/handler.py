@@ -10,27 +10,37 @@ from app.clients.memory_client import MemoryClient
 memory_client = MemoryClient()
 
 
-def _mood_from_payload(payload: Dict[str, Any]) -> Optional[str]:
+def _mood_from_payload(payload: Dict[str, Any]) -> Optional[Any]:
     """
-    Mood simple (“triste”) OU mood structuré provenant de mood_state :
-    { physical_state, mental_state }
+    Mood utilisé pour le PROMPT du coach.
+
+    - Si un dict complet mood_state est présent, on le renvoie tel quel
+      (il contient typiquement : mood_label, valence, energy, physical_state, mental_state, score...).
+    - Sinon, on renvoie le champ "mood" s'il existe (string simple).
+    - Sinon, None.
     """
+    mood_state = payload.get("mood_state")
+    if isinstance(mood_state, dict) and mood_state:
+        return mood_state  # laissé tel quel pour que build_coach_prompt le détaille
+
     mood = payload.get("mood")
     if mood:
         return str(mood)
 
-    mood_state = payload.get("mood_state") or {}
-    if isinstance(mood_state, dict):
-        physical = mood_state.get("physical_state")
-        mental = mood_state.get("mental_state")
-        parts = []
-        if physical:
-            parts.append(f"état physique: {physical}")
-        if mental:
-            parts.append(f"état mental: {mental}")
-        if parts:
-            return ", ".join(parts)
+    return None
 
+
+def _mood_label_for_memory(mood: Any) -> Optional[str]:
+    """
+    Renvoie une version compacte du mood pour la mémoire (simple string).
+
+    - Si mood est un dict, on essaye de prendre mood_label ou label.
+    - Si mood est une string, on la renvoie telle quelle.
+    """
+    if isinstance(mood, dict):
+        return mood.get("mood_label") or mood.get("label")
+    if isinstance(mood, str):
+        return mood
     return None
 
 
@@ -71,11 +81,9 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     # ✔️ Extraction des données de l’orchestrateur
     # -------------------------------------------------------------------------
     user_input: str = payload.get("user_input", "")
-    mood = _mood_from_payload(payload)
-
+    mood_for_prompt: Any = _mood_from_payload(payload)
     history_from_payload = payload.get("history") or []
 
-    # ⚡ IMPORTANT
     # L’orchestrateur peut envoyer deux clés différentes selon les services :
     expert_knowledge = (
         payload.get("expert_knowledge")
@@ -85,6 +93,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
 
     # LOG DEBUG (doit s’afficher dans terminal agent_cerveau)
     print("[AGENT_CERVEAU] expert_knowledge reçu :", expert_knowledge, flush=True)
+    print("[AGENT_CERVEAU] mood_for_prompt reçu :", mood_for_prompt, flush=True)
 
     # -------------------------------------------------------------------------
     # ✔️ Charger l’historique depuis agent_memory
@@ -101,7 +110,7 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     # -------------------------------------------------------------------------
     full_prompt = build_coach_prompt(
         user_input=user_input,
-        mood=mood,
+        mood=mood_for_prompt,
         history=history,
         expert_knowledge=expert_knowledge,
     )
@@ -117,12 +126,19 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
     # -------------------------------------------------------------------------
     if user_id:
         try:
+            mood_label = _mood_label_for_memory(mood_for_prompt)
+
+            # message utilisateur
             memory_client.save_interaction(
                 user_id=user_id,
                 role="user",
                 text=user_input,
-                metadata={"service": "coaching_sport", "mood_raw": mood},
+                metadata={
+                    "service": "coaching_sport",
+                    "mood_raw": mood_label or str(mood_for_prompt),
+                },
             )
+            # réponse coach
             memory_client.save_interaction(
                 user_id=user_id,
                 role="coach",
@@ -130,7 +146,8 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
                 metadata={"service": "coaching_sport"},
             )
         except Exception:
-            pass  # Pas de crash si memory est down
+            # Pas de crash si memory est down
+            pass
 
     # -------------------------------------------------------------------------
     # ✔️ Construire réponse MCP

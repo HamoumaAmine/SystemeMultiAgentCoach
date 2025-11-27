@@ -1,5 +1,3 @@
-# services/agent_manager/app/mcp/handler.py
-
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -236,6 +234,43 @@ async def process_mcp_message(msg: Dict[str, Any]) -> MCPResponse:
             key = (fs.get("service"), fs.get("command"))
             if key not in existing_pairs:
                 services.append(fs)
+
+    # ------------------------------------------------------------------ #
+    # 4) GARANTIE : toujours mood + coaching, même s'il n'y a pas de texte
+    #    (par ex. pour les vocaux où le texte sera ajouté plus tard par
+    #     l'orchestrateur via transcribed_text).
+    # ------------------------------------------------------------------ #
+    existing_pairs = {
+        (s.get("service"), s.get("command"))
+        for s in services
+        if isinstance(s, dict)
+    }
+
+    has_mood = ("mood", "analyze_mood") in existing_pairs
+    has_coaching = ("coaching", "coach_response") in existing_pairs
+
+    if not has_mood:
+        services.append(
+            {
+                "service": "mood",
+                "command": "analyze_mood",
+                # Pour les vocaux, l'orchestrateur remplacera ce texte
+                # par la transcription avant d'appeler l'agent_mood.
+                "text": user_text
+                or "Analyse l'humeur de l'utilisateur à partir de son message (ou de la transcription vocale).",
+            }
+        )
+
+    if not has_coaching:
+        services.append(
+            {
+                "service": "coaching",
+                "command": "coach_response",
+                # Même principe : texte remplacé par la transcription si besoin.
+                "text": user_text
+                or "Fourni une réponse de coaching sport/nutrition adaptée au message de l'utilisateur (vocal ou texte).",
+            }
+        )
 
     # (Optionnel) log debug pour voir ce qui est renvoyé
     # print("[AGENT_MANAGER] services finaux :", services, flush=True)
